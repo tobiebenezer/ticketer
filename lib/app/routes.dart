@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/models/event_model.dart';
 import 'package:myapp/features/auth/login_screen.dart';
+import 'package:myapp/features/checkout/sell_ticket_screen.dart';
 import 'package:myapp/features/home/event_details_screen.dart';
 import 'package:myapp/features/home/home_screen.dart';
 import 'package:myapp/features/splash_screen.dart';
@@ -10,12 +11,14 @@ class AppRoutes {
   static const String login = '/login';
   static const String home = '/home';
   static const String eventDetails = '/event-details';
+  static const String sellTicket = '/sell-ticket';
 
   static Map<String, WidgetBuilder> getRoutes() {
     return {
       splash: (context) => const SplashScreen(),
       login: (context) => const LoginScreen(),
       home: (context) => const HomeScreen(),
+      sellTicket: (context) => const SellTicketScreen(),
     };
   }
 
@@ -27,6 +30,8 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const LoginScreen());
       case home:
         return MaterialPageRoute(builder: (_) => const HomeScreen());
+      case sellTicket:
+        return MaterialPageRoute(builder: (_) => const SellTicketScreen());
       case eventDetails:
         if (settings.arguments is Event) {
           final event = settings.arguments as Event;

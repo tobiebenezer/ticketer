@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app/routes.dart';
-import 'app/theme.dart';
 import 'core/providers/theme_provider.dart';
 
 void main() {
@@ -23,16 +22,15 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Ticket Sales App',
           theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-          useMaterial3: true,
-        ),
-        debugShowCheckedModeBanner: false,
-        initialRoute: AppRoutes.splash,
-        // routes: AppRoutes.getRoutes(),
-        onGenerateRoute: AppRoutes.generateRoute,
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+            useMaterial3: true,
+          ),
+          debugShowCheckedModeBanner: false,
+          initialRoute: AppRoutes.splash, // Updated initial route
+          routes: AppRoutes.getRoutes(),
+          onGenerateRoute: AppRoutes.generateRoute,
         );
       },
     );
   }
 }
-
