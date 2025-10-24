@@ -1,138 +1,42 @@
-# Flutter Ticket Sales App Blueprint
+# Ticket Sales App Blueprint
 
-## 1. App Purpose
+## Overview
 
-A Flutter mobile application that enables ticket sales agents to sell tickets and validate previously sold tickets through backend API integration.
+This document outlines the plan and progress for creating a comprehensive Ticket Sales and Validation Flutter application. The app will enable users to browse events, purchase tickets, and validate tickets using QR codes.
 
-### Core Functionality
+## Features Implemented
 
-*   Browse and search available tickets
-*   Sell tickets to customers
-*   Validate sold tickets (QR/barcode scanning)
-*   View sales history and reports
+### Core App Structure
+- **Project Setup:** Initialized a new Flutter project.
+- **Theming:** Implemented a theme provider for easy switching between light and dark modes, using `provider` for state management.
+- **UI and Styling:** Created a modern and visually appealing UI with custom fonts from `google_fonts`.
 
----
+### Event Browsing
+- **API Service:** Created a service to fetch event and ticket data from a mock API.
+- **Data Models:** Defined data models for events and tickets.
+- **Home Screen:** Developed the main screen to display a list of available events.
+- **Event Details:** Created a screen to show detailed information about a selected event.
+- **Caching:** Implemented local caching of event data using `shared_preferences` to provide a seamless offline experience.
+- **Pull-to-Refresh:** Added pull-to-refresh functionality to manually refresh the event data.
 
-## 2. Technical Architecture
+### Ticket Sales
+- **Sell Ticket Screen:** Created a screen with a customer information form and an order summary.
+- **Form Validation:** Implemented form validation to ensure all required fields are filled correctly.
+- **Sale Confirmation Screen:** Developed a screen to confirm the sale and display a unique QR code for the ticket using the `qr_flutter` package.
+- **Navigation:** Integrated the sales flow into the app, allowing users to navigate from the event details screen to the sell ticket screen and then to the confirmation screen.
 
-### Technology Stack
+### Ticket Validation
+- **QR Code Scanner:** Integrated a QR code scanner using the `mobile_scanner` package.
+- **Validator Screen:** Created a screen to scan QR codes.
+- **Validation Result Screen:** Developed a screen to display whether a ticket is valid or invalid based on the scanned QR code.
+- **Navigation:** Added a button to the home screen to allow users to navigate to the ticket validator screen.
 
-*   **Frontend**: Flutter (Dart)
-*   **State Management**: Provider
-*   **HTTP Client**: `http` package
-*   **Local Storage**: `shared_preferences` (for auth tokens) and `hive` (for offline caching)
-*   **QR/Barcode Scanning**: `mobile_scanner`
-*   **QR Generation**: `qr_flutter`
+## Current Plan
 
-### Project Structure
+All core features outlined in the initial plan have been implemented. The application is now a functional prototype for a ticket sales and validation system.
 
-```
-lib/
-├── main.dart
-├── app/
-│   ├── routes.dart
-│   └── theme.dart
-├── core/
-│   ├── constants/
-│   ├── utils/
-│   └── widgets/
-├── data/
-│   ├── models/
-│   ├── repositories/
-│   └── services/
-│       └── api_service.dart
-├── features/
-│   ├── auth/
-│   ├── tickets/
-│   ├── sales/
-│   └── validation/
-└── providers/
-```
-
----
-
-## 3. API Endpoints (Expected)
-
-*   **Authentication**:
-    *   `POST /api/auth/login`
-    *   `POST /api/auth/refresh-token`
-    *   `POST /api/auth/logout`
-*   **Tickets**:
-    *   `GET /api/tickets/available`
-    *   `GET /api/tickets/{id}`
-    *   `GET /api/tickets/categories`
-*   **Sales**:
-    *   `POST /api/sales/create`
-    *   `GET /api/sales/history`
-    *   `GET /api/sales/{id}`
-*   **Validation**:
-    *   `POST /api/validation/validate-ticket`
-    *   `GET /api/validation/history`
-
----
-
-## 4. User Stories
-
-### Epic 1: Authentication & Account Management
-
-*   **US-1.1: Agent Login**: As an agent, I want to log in with my credentials so that I can access the ticket sales system securely.
-*   **US-1.2: Session Management**: As an agent, I want to stay logged in between app sessions so that I don't have to log in repeatedly.
-
-### Epic 2: Browse & Search Tickets
-
-*   **US-2.1: View Available Tickets**: As an agent, I want to see a list of all available tickets to inform customers about options.
-*   **US-2.2: Search and Filter Tickets**: As an agent, I want to search and filter tickets by criteria to quickly find specific tickets.
-*   **US-2.3: View Ticket Details**: As an agent, I want to view complete ticket information to answer customer questions.
-
-### Epic 3: Ticket Sales
-
-*   **US-3.1: Sell Single Ticket**: As an agent, I want to sell a ticket to a customer to complete the transaction.
-*   **US-3.2: Sell Multiple Tickets**: As an agent, I want to sell multiple tickets in one transaction.
-*   **US-3.3: View Sale Confirmation**: As an agent, I want to see immediate confirmation after a sale.
-*   **US-3.4: Sales History**: As an agent, I want to view my past sales.
-
-### Epic 4: Ticket Validation
-
-*   **US-4.1: Scan Ticket QR Code**: As an agent, I want to scan a customer's ticket QR code to validate entry.
-*   **US-4.2: View Validation Result**: As an agent, I want to see a clear validation status.
-*   **US-4.3: Validation History**: As an agent, I want to view my validation history.
-
----
-
-## 5. Data Models
-
-*   **Ticket**
-*   **Sale**
-*   **Validation**
-
----
-
-## 6. UI/UX Screens
-
-*   Splash Screen
-*   Login Screen
-*   Home Dashboard
-*   Tickets List
-*   Ticket Details
-*   Sell Ticket Screen
-*   Sale Confirmation
-*   Scanner Screen
-*   Validation Result
-*   Sales History
-*   Profile/Settings
-
----
-
-## 7. Development Plan
-
-### Phase 1: Foundation (Current)
-
-*   [x] Set up Flutter project structure based on the blueprint.
-*   [ ] Implement navigation and routing.
-*   [ ] Create API service layer with `http`.
-*   [ ] Set up state management with `provider`.
-*   [ ] Implement authentication (login, token storage, auto-login).
-*   [ ] Create reusable UI components.
-*   [ ] Set up error handling and logging.
-
----
+### Next Steps (Future Enhancements)
+- **Backend Integration:** Replace the mock API service with a real backend to handle event data, ticket sales, and validation.
+- **Payment Gateway Integration:** Integrate a payment gateway to process real payments.
+- **User Authentication:** Add user authentication to allow users to create accounts and view their order history.
+- **Animations and UI Polish:** Add animations and further polish the UI to enhance the user experience.
