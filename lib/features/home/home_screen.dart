@@ -115,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Available Events'),
+        title: const Text('Available Matches'),
         actions: [
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
@@ -156,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFilterChips() {
-    final categories = ['All', 'Music', 'Sports', 'Arts'];
+    final categories = ['All'];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
       child: Wrap(

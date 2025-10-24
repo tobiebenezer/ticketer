@@ -1,26 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/models/event_model.dart';
+import 'package:myapp/data/models/ticket_model.dart';
 import 'package:myapp/features/checkout/sale_confirmation_screen.dart';
 import 'dart:math';
 
 class SellTicketScreen extends StatefulWidget {
   final Event event;
+  final Ticket ticket;
 
-  const SellTicketScreen({super.key, required this.event});
+  const SellTicketScreen({super.key, required this.event, required this.ticket});
 
   @override
-  State<SellTicketScreen> createState() => _SellTicketScreenState();
 }
 
 class _SellTicketScreenState extends State<SellTicketScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
-  bool _termsAccepted = false;
+  final TextEditingController _ticketNumberController = TextEditingController();
 
   void _processSale() {
-    if (_formKey.currentState!.validate() && _termsAccepted) {
+    if (_formKey.currentState!.validate()) {
       // In a real app, you would process the payment and generate a unique sale ID here.
       final saleId =
           'SALE-${Random().nextInt(999999).toString().padLeft(6, '0')}';
@@ -67,64 +65,19 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24.0),
-              Text(
-                'Customer Information',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
               const SizedBox(height: 16.0),
               TextFormField(
-                controller: _nameController,
+                controller: _ticketNumberController,
                 decoration: const InputDecoration(
-                  labelText: 'Full Name',
+                  labelText: 'Ticket Number',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter your full name';
+                    return 'Please enter the ticket number';
                   }
                   return null;
                 },
-              ),
-              const SizedBox(height: 16.0),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email Address',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your email address';
-                  }
-                  if (!RegExp(
-                    r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                  ).hasMatch(value)) {
-                    return 'Please enter a valid email address';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 24.0),
-              CheckboxListTile(
-                title: const Text('I accept the terms and conditions'),
-                value: _termsAccepted,
-                onChanged: (value) {
-                  setState(() {
-                    _termsAccepted = value!;
-                  });
-                },
-                controlAffinity: ListTileControlAffinity.leading,
               ),
               const SizedBox(height: 24.0),
               ElevatedButton(
@@ -139,5 +92,11 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _ticketNumberController.dispose();
+    super.dispose();
   }
 }

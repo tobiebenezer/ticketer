@@ -40,11 +40,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     }
   }
 
-  void _navigateToSellTicket() {
+  void _navigateToSellTicket(Ticket ticket) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SellTicketScreen(event: widget.event),
+        builder: (context) => SellTicketScreen(event: widget.event, ticket: ticket),
       ),
     );
   }
@@ -127,14 +127,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                   ),
                   const SizedBox(height: 8.0),
                   _buildTicketList(),
-                  const SizedBox(height: 32.0),
-                  ElevatedButton(
-                    onPressed: _navigateToSellTicket,
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                    ),
-                    child: const Text('Sell Ticket'),
-                  ),
+                  // const SizedBox(height: 32.0),
+                  // ElevatedButton(
+                  //   onPressed: _navigateToSellTicket,
+                  //   style: ElevatedButton.styleFrom(
+                  //     minimumSize: const Size(double.infinity, 50),
+                  //   ),
+                  //   child: const Text('Sell Ticket'),
+                  // ),
                 ],
               ),
             ),
@@ -166,6 +166,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 4.0),
           child: ListTile(
+            onTap: () => _navigateToSellTicket(ticket),
             title: Text(
               ticket.type,
               style: Theme.of(context).textTheme.titleMedium,
