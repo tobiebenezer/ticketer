@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/services/api_service.dart';
-import 'package:myapp/features/home/home_screen.dart';
+import 'package:myapp/app/routes.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -42,10 +42,7 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       if (success) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
+        Navigator.pushReplacementNamed(context, AppRoutes.home);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -58,10 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _guestLogin() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const HomeScreen()),
-    );
+    Navigator.pushReplacementNamed(context, AppRoutes.home);
   }
 
   @override
