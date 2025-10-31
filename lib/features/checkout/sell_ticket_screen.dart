@@ -1,14 +1,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:myapp/data/models/event_model.dart';
-import 'package:myapp/data/models/ticket_model.dart';
+import 'package:myapp/data/models/ticket_type.dart';
+import 'package:myapp/data/services/ticket_api.dart';
 import 'package:myapp/features/checkout/sale_confirmation_screen.dart';
 
 class SellTicketScreen extends StatefulWidget {
-  final Event? event; // Make event nullable
-  final Ticket? ticket; // Make ticket nullable
+  final Event event;
+  final TicketType ticketType;
 
-  const SellTicketScreen({super.key, this.event, this.ticket});
+  const SellTicketScreen({super.key, required this.event, required this.ticketType});
 
   @override
   State<SellTicketScreen> createState() => _SellTicketScreenState();
@@ -16,49 +17,69 @@ class SellTicketScreen extends StatefulWidget {
 
 class _SellTicketScreenState extends State<SellTicketScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _ticketNumberController = TextEditingController();
+  final TextEditingController _ticketNumberController = TextEditingController(text: '1');
   final TextEditingController _customerNameController = TextEditingController();
-
-  // Mock data for event and ticket if not provided
-  late Event _event;
-  late Ticket _ticket;
+  final TicketApi _ticketApi = TicketApi();
+  bool _isSubmitting = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _event = widget.event ??
-        Event(
-          id: '1',
-          title: 'Default Event',
-          description: 'This is a default event description.',
-          date: '2024-12-25',
-          location: 'Default Location',
-          imageUrl: 'https://via.placeholder.com/150',
-          category: 'Default Category',
-        );
-    _ticket = widget.ticket ??
-        Ticket(
-          id: '1',
-          eventId: '1',
-          type: 'General Admission',
-          price: 50.00,
-          quantity: 100,
-        );
   }
 
-  void _processSale() {
-    if (_formKey.currentState!.validate()) {
-      Navigator.push(
+  Future<void> _processSale() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final quantity = int.parse(_ticketNumberController.text);
+    final customerName = _customerNameController.text.trim();
+    final amount = widget.ticketType.price * quantity;
+
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+
+    try {
+      final bookedTickets = await _ticketApi.bookTicket(
+        matchId: widget.event.id,
+        ticketTypeId: widget.ticketType.id,
+        quantity: quantity,
+        amount: amount,
+        customerName: customerName.isEmpty ? null : customerName,
+      );
+
+      if (!mounted) return;
+
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => SaleConfirmationScreen(
-            event: _event,
-            ticket: _ticket,
-            numberOfTickets: int.parse(_ticketNumberController.text),
-            customerName: _customerNameController.text,
+            event: widget.event,
+            ticketType: widget.ticketType,
+            tickets: bookedTickets,
+            numberOfTickets: quantity,
+            customerName: customerName,
           ),
         ),
       );
+
+      if (!mounted) return;
+
+      _ticketNumberController.text = '1';
+      _customerNameController.clear();
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to process sale. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 
@@ -85,17 +106,28 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _event.title,
+                        '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 8.0),
-                      Text(_event.date),
+                      Text(widget.event.matchDate),
                       const SizedBox(height: 8.0),
-                      Text(_event.location),
+                      Text(widget.event.venue),
+                      const SizedBox(height: 8.0),
+                      Text('Ticket type: ${widget.ticketType.name}'),
+                      const SizedBox(height: 4.0),
+                      Text('Price: ₦${widget.ticketType.price.toStringAsFixed(2)}'),
                     ],
                   ),
                 ),
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 12.0),
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ],
               const SizedBox(height: 16.0),
               TextFormField(
                 controller: _ticketNumberController,
@@ -130,11 +162,13 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
               ),
               const SizedBox(height: 24.0),
               ElevatedButton(
-                onPressed: _processSale,
+                onPressed: _isSubmitting ? null : _processSale,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 50),
                 ),
-                child: const Text('Confirm Sale'),
+                child: _isSubmitting
+                    ? const CircularProgressIndicator.adaptive()
+                    : const Text('Confirm Sale'),
               ),
             ],
           ),

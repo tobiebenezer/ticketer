@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/models/event_model.dart';
-import 'package:myapp/data/models/ticket_model.dart';
-import 'package:myapp/data/services/api_service.dart';
+import 'package:myapp/data/models/ticket_type.dart';
+import 'package:myapp/data/services/ticket_api.dart';
 import 'package:myapp/features/checkout/sell_ticket_screen.dart';
 
 class EventDetailsScreen extends StatefulWidget {
@@ -15,36 +15,36 @@ class EventDetailsScreen extends StatefulWidget {
 
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
   final TicketApi _ticketApi = TicketApi();
-  List<Ticket> _tickets = [];
+  List<TicketType> _ticketTypes = [];
   bool _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _fetchTickets();
+    _fetchTicketTypes();
   }
 
-  Future<void> _fetchTickets() async {
-    try {
-      final tickets = await _ticketApi.getTickets(widget.event.id);
+  Future<void> _fetchTicketTypes() async {
+    // try {
+      final ticketTypes = await _ticketApi.getTicketTypes();
       setState(() {
-        _tickets = tickets;
+        _ticketTypes = ticketTypes;
         _isLoading = false;
       });
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load tickets. Please try again later.';
-        _isLoading = false;
-      });
-    }
+    // } catch (e) {
+    //   setState(() {
+    //     _error = 'Failed to load tickets. Please try again later.';
+    //     _isLoading = false;
+    //   });
+    // }
   }
 
-  void _navigateToSellTicket(Ticket ticket) {
+  void _navigateToSellTicket(TicketType ticketType) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SellTicketScreen(event: widget.event, ticket: ticket),
+        builder: (context) => SellTicketScreen(event: widget.event, ticketType: ticketType),
       ),
     );
   }
@@ -52,7 +52,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.event.title)),
+      appBar: AppBar(title: Text('${widget.event.homeTeam} vs ${widget.event.awayTeam}')),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -68,7 +68,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.event.title,
+                    '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const SizedBox(height: 16.0),
@@ -77,7 +77,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       const Icon(Icons.calendar_today, size: 20.0),
                       const SizedBox(width: 8.0),
                       Text(
-                        widget.event.date,
+                        widget.event.matchDate,
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ],
@@ -88,7 +88,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       const Icon(Icons.location_on, size: 20.0),
                       const SizedBox(width: 8.0),
                       Text(
-                        widget.event.location,
+                        widget.event.venue,
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ],
@@ -100,7 +100,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                   ),
                   const SizedBox(height: 8.0),
                   Text(
-                    widget.event.description,
+                    widget.event.competition,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 24.0),
@@ -136,29 +136,24 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       return Text(_error!, style: const TextStyle(color: Colors.red));
     }
 
-    if (_tickets.isEmpty) {
-      return const Text('No tickets available for this event.');
+    if (_ticketTypes.isEmpty) {
+      return const Text('No ticket types available.');
     }
 
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _tickets.length,
+      itemCount: _ticketTypes.length,
       itemBuilder: (context, index) {
-        final ticket = _tickets[index];
+        final ticketType = _ticketTypes[index];
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 4.0),
           child: ListTile(
-            onTap: () => _navigateToSellTicket(ticket),
-            title: Text(
-              ticket.type,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            subtitle: Text('${ticket.quantity} available'),
-            trailing: Text(
-              '\$${ticket.price.toStringAsFixed(2)}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            onTap: () => _navigateToSellTicket(ticketType),
+            title: Text(ticketType.name,
+                style: Theme.of(context).textTheme.titleMedium),
+            subtitle: Text('₦${ticketType.price.toStringAsFixed(2)}'),
+            trailing: const Icon(Icons.chevron_right),
           ),
         );
       },

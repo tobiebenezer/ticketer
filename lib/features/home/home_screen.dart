@@ -5,7 +5,10 @@ import 'package:myapp/data/services/api_service.dart';
 import 'package:provider/provider.dart';
 import 'package:myapp/data/services/local_storage_service.dart';
 import 'package:myapp/features/home/event_details_screen.dart';
-import 'package:myapp/features/ticket_validation/ticket_validator_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:myapp/core/constants/network_constants.dart';
+import 'package:myapp/app/routes.dart';
+import 'package:myapp/data/services/api_client.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,12 +26,36 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _error;
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'All';
+  bool _isGuest = true;
 
   @override
   void initState() {
     super.initState();
     _loadEvents();
     _searchController.addListener(_filterEvents);
+    _loadAuthState();
+
+    // Set up global 401 handler to redirect to login
+    ApiClient.onUnauthorized = () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(kAuthTokenKey);
+      } catch (_) {}
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+      }
+    };
+  }
+
+  Future<void> _loadAuthState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString(kAuthTokenKey);
+      if (!mounted) return;
+      setState(() {
+        _isGuest = token == null || token.isEmpty;
+      });
+    } catch (_) {}
   }
 
   @override
@@ -77,12 +104,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final query = _searchController.text.toLowerCase();
     setState(() {
       _filteredEvents = _events.where((event) {
-        final categoryMatches =
-            _selectedCategory == 'All' ||
-            event.category.toLowerCase() == _selectedCategory.toLowerCase();
+        final categoryMatches = _selectedCategory == 'All' ||
+            event.status.toLowerCase() == _selectedCategory.toLowerCase();
+        final title = '${event.homeTeam} vs ${event.awayTeam}'.toLowerCase();
         final searchMatches =
-            event.title.toLowerCase().contains(query) ||
-            event.location.toLowerCase().contains(query);
+            title.contains(query) ||
+            event.venue.toLowerCase().contains(query) ||
+            event.competition.toLowerCase().contains(query);
         return categoryMatches && searchMatches;
       }).toList();
     });
@@ -96,16 +124,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateToDetails(Event event) {
+    if (_isGuest) {
+      Navigator.of(context).pushNamed(AppRoutes.login);
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => EventDetailsScreen(event: event)),
-    );
-  }
-
-  void _navigateToValidator() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const TicketValidatorScreen()),
     );
   }
 
@@ -117,11 +142,47 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Available Matches'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: _navigateToValidator,
-            tooltip: 'Validate Ticket',
-          ),
+          _isGuest
+              ? IconButton(
+                  icon: const Icon(Icons.login),
+                  tooltip: 'Login',
+                  onPressed: () {
+                    Navigator.of(context).pushNamed(AppRoutes.login).then((_) => _loadAuthState());
+                  },
+                )
+              : IconButton(
+                  icon: const Icon(Icons.logout),
+                  tooltip: 'Logout',
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Logout'),
+                        content: const Text('Are you sure you want to logout?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text('Logout'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      try {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove(kAuthTokenKey);
+                      } catch (_) {}
+                      if (mounted) {
+                        setState(() => _isGuest = true);
+                        Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+                      }
+                    }
+                  },
+                ),
           Switch(
             value: themeProvider.themeMode == ThemeMode.dark,
             onChanged: (value) {
@@ -156,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFilterChips() {
-    final categories = ['All'];
+    final categories = ['All', 'upcoming', 'played', 'postponed', 'cancelled'];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
       child: Wrap(
@@ -231,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        event.title,
+                        '${event.homeTeam} vs ${event.awayTeam}',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 8.0),
@@ -240,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Icon(Icons.calendar_today, size: 16.0),
                           const SizedBox(width: 8.0),
                           Text(
-                            event.date,
+                            event.matchDate,
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],
@@ -251,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Icon(Icons.location_on, size: 16.0),
                           const SizedBox(width: 8.0),
                           Text(
-                            event.location,
+                            event.venue,
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],

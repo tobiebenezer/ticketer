@@ -1,44 +1,67 @@
 class Event {
-  final String id;
-  final String title;
-  final String description;
-  final String category;
-  final String date;
-  final String location;
-  final String imageUrl;
+  final int id;
+  final int userId;
+  final String season;
+  final String homeTeam;
+  final String awayTeam;
+  final String venue;
+  final int stadiumCapacity;
+  final String matchDate;
+  final String competition;
+  final String matchWeek;
+  final String status;
+  final String createdAt;
+  final String updatedAt;
 
   Event({
     required this.id,
-    required this.title,
-    required this.description,
-    required this.category,
-    required this.date,
-    required this.location,
-    required this.imageUrl,
+    required this.userId,
+    required this.season,
+    required this.homeTeam,
+    required this.awayTeam,
+    required this.venue,
+    required this.stadiumCapacity,
+    required this.matchDate,
+    required this.competition,
+    required this.matchWeek,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
   });
-    factory Event.fromJson(Map<String, dynamic> json) {
+
+  factory Event.fromJson(Map<String, dynamic> json) {
     return Event(
       id: json['id'],
-      title: json['title'],
-      description: json['description'],
-      category: json['category'],
-      date: json['date'],
-      location: json['location'],
-      imageUrl: json['imageUrl'],
+      userId: json['user_id'],
+      season: json['season'],
+      homeTeam: json['home_team'],
+      awayTeam: json['away_team'],
+      venue: json['venue'],
+      stadiumCapacity: json['stadium_capacity'],
+      matchDate: json['match_date'],
+      competition: json['competition'],
+      matchWeek: json['match_week'],
+      status: json['status'],
+      createdAt: json['created_at'],
+      updatedAt: json['updated_at'],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'title': title,
-      'description': description,
-      'category': category,
-      'date': date,
-      'location': location,
-      'imageUrl': imageUrl,
+      'user_id': userId,
+      'season': season,
+      'home_team': homeTeam,
+      'away_team': awayTeam,
+      'venue': venue,
+      'stadium_capacity': stadiumCapacity,
+      'match_date': matchDate,
+      'competition': competition,
+      'match_week': matchWeek,
+      'status': status,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
     };
   }
 }
-
-

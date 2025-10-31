@@ -2,20 +2,24 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/models/event_model.dart';
 import 'package:myapp/data/models/ticket_model.dart';
-import 'package:myapp/features/checkout/sell_ticket_screen.dart';
+import 'package:myapp/data/models/ticket_type.dart';
 import 'package:myapp/features/ticket_printing/print_service.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:uuid/uuid.dart';
 
 class SaleConfirmationScreen extends StatefulWidget {
   final Event event;
-  final Ticket ticket;
+  final TicketType ticketType;
+  final List<Ticket> tickets;
   final int numberOfTickets;
   final String customerName;
 
   const SaleConfirmationScreen({
     super.key,
     required this.event,
-    required this.ticket,
+    required this.ticketType,
+    required this.tickets,
     required this.numberOfTickets,
     required this.customerName,
   });
@@ -28,6 +32,7 @@ class _SaleConfirmationScreenState extends State<SaleConfirmationScreen> {
   final PrintService _printService = PrintService();
   bool _isPrinting = false;
   final String transactionId = const Uuid().v4();
+  String? _savedPdfPath;
 
   @override
   void initState() {
@@ -42,43 +47,66 @@ class _SaleConfirmationScreenState extends State<SaleConfirmationScreen> {
       _isPrinting = true;
     });
 
-    // Generate unique ticket codes
-    final ticketCodes = List.generate(
-      widget.numberOfTickets,
-      (index) => 'TKT-${const Uuid().v4().substring(0, 8).toUpperCase()}',
-    );
+    // Use backend-generated references when available
+    final ticketCodes = widget.tickets.isNotEmpty
+        ? widget.tickets.map((t) => t.referenceNo).toList()
+        : List.generate(
+            widget.numberOfTickets,
+            (_) => 'TKT-${const Uuid().v4().substring(0, 8).toUpperCase()}',
+          );
 
     // Print the tickets
     final bool success = await _printService.printMultipleTickets(
-      eventName: widget.event.title,
-      ticketType: widget.ticket.type,
-      price: widget.ticket.price,
+      eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
+      ticketType: widget.ticketType.name,
+      price: widget.ticketType.price,
       numberOfTickets: widget.numberOfTickets,
       ticketCodes: ticketCodes,
       transactionId: transactionId,
       customerName: widget.customerName,
+      onSavedPdf: (path) {
+        _savedPdfPath = path;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No printer found. Saved tickets PDF: $path'),
+              action: SnackBarAction(
+                label: 'Share',
+                onPressed: () {
+                  Share.shareXFiles([XFile(path)], text: 'Tickets PDF');
+                },
+              ),
+            ),
+          );
+        }
+      },
     );
 
     setState(() {
       _isPrinting = false;
     });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? 'Printing complete!' : 'Printing failed. Please try again.',
-          ),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ),
-      );
+    if (!mounted) return;
 
-      // Navigate back to the SellTicketScreen after a short delay
+    final usedPdfFallback = _savedPdfPath != null;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? (usedPdfFallback
+                  ? 'Tickets saved to PDF. You can view or share below.'
+                  : 'Tickets printed successfully')
+              : 'Failed to print tickets. Please try again.',
+        ),
+      ),
+    );
+
+    // Auto-pop only when thermal print succeeded and no PDF fallback was used
+    if (success && !usedPdfFallback) {
       await Future.delayed(const Duration(seconds: 2));
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const SellTicketScreen()),
-        (Route<dynamic> route) => false,
-      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
     }
   }
 
@@ -102,28 +130,80 @@ class _SaleConfirmationScreenState extends State<SaleConfirmationScreen> {
                 ],
               )
             else
-              const Column(
+              Column(
                 children: [
-                  Icon(Icons.check_circle_outline, color: Colors.green, size: 80),
-                  SizedBox(height: 20),
-                  Text('Sale Confirmed!'),
+                  const Icon(Icons.check_circle_outline, color: Colors.green, size: 80),
+                  const SizedBox(height: 20),
+                  Text('${widget.event.homeTeam} vs ${widget.event.awayTeam}'),
+                  const SizedBox(height: 8),
+                  Text('${widget.numberOfTickets} × ${widget.ticketType.name}'),
+                  const SizedBox(height: 4),
+                  Text('Customer: ${widget.customerName.isEmpty ? 'N/A' : widget.customerName}'),
                 ],
               ),
             const SizedBox(height: 30),
             _isPrinting
                 ? const SizedBox.shrink()
-                : ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(
-                          builder: (context) => const SellTicketScreen(),
+                : Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                    child: Column(
+                      children: [
+                      // Action row: View + Share side by side when PDF exists
+                      if (_savedPdfPath != null) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  final path = _savedPdfPath!;
+                                  OpenFilex.open(path);
+                                },
+                                icon: const Icon(Icons.picture_as_pdf),
+                                label: const Text('View PDF'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  final path = _savedPdfPath!;
+                                  Share.shareXFiles([XFile(path)], text: 'Tickets PDF');
+                                },
+                                icon: const Icon(Icons.ios_share),
+                                label: const Text('Share PDF'),
+                              ),
+                            ),
+                          ],
                         ),
-                        (route) => false,
-                      );
-                    },
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Go Back Manually'),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // Tickets History entry point
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushNamed('/tickets-history');
+                        },
+                        icon: const Icon(Icons.folder),
+                        label: const Text('Tickets History'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Back button
+                      ElevatedButton.icon(
+                        style: ButtonStyle(
+                          padding: WidgetStateProperty.all(
+                            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                        },
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('Go Back'),
+                      ),
+                    ],
                   ),
+                )
           ],
         ),
       ),

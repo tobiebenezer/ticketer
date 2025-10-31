@@ -3,6 +3,8 @@ import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'print_service.dart';
 
 class PrinterSelectionDialog extends StatefulWidget {
+  const PrinterSelectionDialog({super.key});
+
   @override
   State<PrinterSelectionDialog> createState() => _PrinterSelectionDialogState();
 }

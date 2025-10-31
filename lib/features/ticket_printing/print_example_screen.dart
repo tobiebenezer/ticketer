@@ -3,6 +3,8 @@ import 'print_service.dart';
 import 'printer_selection_dialog.dart';
 
 class PrintExampleScreen extends StatefulWidget {
+  const PrintExampleScreen({super.key});
+
   @override
   State<PrintExampleScreen> createState() => _PrintExampleScreenState();
 }

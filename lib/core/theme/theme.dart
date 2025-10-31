@@ -46,7 +46,7 @@ class AppTheme {
 
   static InputDecorationTheme _inputTheme(ColorScheme cs) => InputDecorationTheme(
         filled: true,
-        fillColor: cs.surfaceVariant.withOpacity(0.2),
+        fillColor: cs.surfaceContainerHighest.withOpacity(0.2),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: _outline(cs.outline),
         enabledBorder: _outline(cs.outline),

@@ -10,7 +10,7 @@ class CheckoutScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Checkout')),
-      body: Center(child: Text('Checkout screen for ${event.title}')),
+      body: Center(child: Text('Checkout screen for ${event.homeTeam} vs ${event.awayTeam}')),
     );
   }
 }

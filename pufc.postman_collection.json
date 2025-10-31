@@ -1,0 +1,734 @@
+{
+	"info": {
+		"_postman_id": "079441a5-3d2c-4844-993d-2bb2542f1de2",
+		"name": "pufc",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "30948253",
+		"_collection_link": "https://gnorizondev.postman.co/workspace/PUFC~f81c95e0-f512-4541-a1c2-45b0ae38a611/collection/30948253-079441a5-3d2c-4844-993d-2bb2542f1de2?action=share&source=collection_link&creator=30948253"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Your test name\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.variables.set(\"AUTH_TOKEN\", jsonData.token);",
+									"});"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\":\"superadmin@plateauunited.com\",\n    \"password\": \"plateauunited\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/login",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"login"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "New Request",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\":\"super@plateauunitedfc.com\",\n    \"password\": \"password\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{BASE_URL}}/login",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"login"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": null,
+							"header": [
+								{
+									"key": "Server",
+									"value": "nginx"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Transfer-Encoding",
+									"value": "chunked"
+								},
+								{
+									"key": "Connection",
+									"value": "keep-alive"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept-Encoding"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache, private"
+								},
+								{
+									"key": "Date",
+									"value": "Thu, 30 Oct 2025 02:21:27 GMT"
+								},
+								{
+									"key": "Access-Control-Allow-Origin",
+									"value": "*"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "SAMEORIGIN"
+								},
+								{
+									"key": "X-XSS-Protection",
+									"value": "1; mode=block"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Content-Encoding",
+									"value": "gzip"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status\": \"success\",\n    \"token\": \"1|VkadUGBevhXnvDrlkSiiCGE0MJkl4qv7cezEMh4J339cc833\",\n    \"user\": {\n        \"id\": 1,\n        \"name\": \"Super Admin\",\n        \"email\": \"super@plateauunitedfc.com\",\n        \"role\": \"super_admin\",\n        \"status\": \"activated\",\n        \"email_verified_at\": null,\n        \"created_at\": \"2025-10-29T15:08:58.000000Z\",\n        \"updated_at\": \"2025-10-29T15:08:58.000000Z\"\n    }\n}"
+						},
+						{
+							"name": "New Request",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\":\"super@plateauunitedfc.com\",\n    \"password\": \"password\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{BASE_URL}}/login",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"login"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": null,
+							"header": [
+								{
+									"key": "Server",
+									"value": "nginx"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Transfer-Encoding",
+									"value": "chunked"
+								},
+								{
+									"key": "Connection",
+									"value": "keep-alive"
+								},
+								{
+									"key": "Vary",
+									"value": "Accept-Encoding"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache, private"
+								},
+								{
+									"key": "Date",
+									"value": "Thu, 30 Oct 2025 02:21:27 GMT"
+								},
+								{
+									"key": "Access-Control-Allow-Origin",
+									"value": "*"
+								},
+								{
+									"key": "X-Frame-Options",
+									"value": "SAMEORIGIN"
+								},
+								{
+									"key": "X-XSS-Protection",
+									"value": "1; mode=block"
+								},
+								{
+									"key": "X-Content-Type-Options",
+									"value": "nosniff"
+								},
+								{
+									"key": "Content-Encoding",
+									"value": "gzip"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"status\": \"success\",\n    \"token\": \"1|VkadUGBevhXnvDrlkSiiCGE0MJkl4qv7cezEMh4J339cc833\",\n    \"user\": {\n        \"id\": 1,\n        \"name\": \"Super Admin\",\n        \"email\": \"super@plateauunitedfc.com\",\n        \"role\": \"super_admin\",\n        \"status\": \"activated\",\n        \"email_verified_at\": null,\n        \"created_at\": \"2025-10-29T15:08:58.000000Z\",\n        \"updated_at\": \"2025-10-29T15:08:58.000000Z\"\n    }\n}"
+						}
+					]
+				},
+				{
+					"name": "logout",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{AUTH_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/logout",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"logout"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Event / Matches",
+			"item": [
+				{
+					"name": "Get all event / matches",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{AUTH_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/matches?status=upcoming",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"matches"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "upcoming",
+									"description": "'upcoming', 'played', 'postponed', 'cancelled'"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "New Request",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{BASE_URL}}/matches",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"matches"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "",
+							"header": [
+								{
+									"key": "Host",
+									"value": "localhost:8000"
+								},
+								{
+									"key": "Connection",
+									"value": "close"
+								},
+								{
+									"key": "X-Powered-By",
+									"value": "PHP/8.4.13"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache, private"
+								},
+								{
+									"key": "Date",
+									"value": "Thu, 30 Oct 2025 13:27:51 GMT"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Access-Control-Allow-Origin",
+									"value": "*"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"current_page\": 1,\n    \"data\": [\n        {\n            \"id\": 1,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"West Ham\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"London Stadium\",\n            \"stadium_capacity\": 60000,\n            \"match_date\": \"2026-01-14 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 28\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 2,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Everton\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Goodison Park\",\n            \"stadium_capacity\": 39414,\n            \"match_date\": \"2025-12-03 13:26:11\",\n            \"competition\": \"Carabao Cup\",\n            \"match_week\": \"Week 21\",\n            \"status\": \"postponed\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 3,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-20 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 13\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 4,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Chelsea\",\n            \"away_team\": \"Tottenham\",\n            \"venue\": \"Stamford Bridge\",\n            \"stadium_capacity\": 40341,\n            \"match_date\": \"2025-12-19 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 18\",\n            \"status\": \"played\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 5,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Liverpool\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Anfield\",\n            \"stadium_capacity\": 53394,\n            \"match_date\": \"2026-04-19 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 36\",\n            \"status\": \"cancelled\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 6,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Liverpool\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-01 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 31\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 7,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Aston Villa\",\n            \"away_team\": \"Manchester United\",\n            \"venue\": \"Villa Park\",\n            \"stadium_capacity\": 42785,\n            \"match_date\": \"2025-12-11 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 7\",\n            \"status\": \"postponed\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 8,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Manchester City\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Etihad Stadium\",\n            \"stadium_capacity\": 53400,\n            \"match_date\": \"2025-12-29 13:26:11\",\n            \"competition\": \"Carabao Cup\",\n            \"match_week\": \"Week 4\",\n            \"status\": \"postponed\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 9,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Manchester City\",\n            \"away_team\": \"Manchester United\",\n            \"venue\": \"Etihad Stadium\",\n            \"stadium_capacity\": 53400,\n            \"match_date\": \"2025-12-13 13:26:11\",\n            \"competition\": \"FA Cup\",\n            \"match_week\": \"Week 13\",\n            \"status\": \"postponed\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 10,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Chelsea\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Stamford Bridge\",\n            \"stadium_capacity\": 40341,\n            \"match_date\": \"2025-12-17 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 12\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 11,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Aston Villa\",\n            \"away_team\": \"Manchester City\",\n            \"venue\": \"Villa Park\",\n            \"stadium_capacity\": 42785,\n            \"match_date\": \"2026-02-27 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 28\",\n            \"status\": \"postponed\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 12,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Leicester City\",\n            \"away_team\": \"Tottenham\",\n            \"venue\": \"King Power Stadium\",\n            \"stadium_capacity\": 32261,\n            \"match_date\": \"2026-03-23 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 23\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 13,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-16 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 4\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 14,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Aston Villa\",\n            \"away_team\": \"Tottenham\",\n            \"venue\": \"Villa Park\",\n            \"stadium_capacity\": 42785,\n            \"match_date\": \"2026-02-27 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 1\",\n            \"status\": \"played\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 15,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Manchester United\",\n            \"away_team\": \"Manchester City\",\n            \"venue\": \"Old Trafford\",\n            \"stadium_capacity\": 74140,\n            \"match_date\": \"2025-12-03 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 32\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        }\n    ],\n    \"first_page_url\": \"http://localhost:8000/api/matches?page=1\",\n    \"from\": 1,\n    \"last_page\": 4,\n    \"last_page_url\": \"http://localhost:8000/api/matches?page=4\",\n    \"links\": [\n        {\n            \"url\": null,\n            \"label\": \"&laquo; Previous\",\n            \"page\": null,\n            \"active\": false\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=1\",\n            \"label\": \"1\",\n            \"page\": 1,\n            \"active\": true\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=2\",\n            \"label\": \"2\",\n            \"page\": 2,\n            \"active\": false\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=3\",\n            \"label\": \"3\",\n            \"page\": 3,\n            \"active\": false\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=4\",\n            \"label\": \"4\",\n            \"page\": 4,\n            \"active\": false\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=2\",\n            \"label\": \"Next &raquo;\",\n            \"page\": 2,\n            \"active\": false\n        }\n    ],\n    \"next_page_url\": \"http://localhost:8000/api/matches?page=2\",\n    \"path\": \"http://localhost:8000/api/matches\",\n    \"per_page\": 15,\n    \"prev_page_url\": null,\n    \"to\": 15,\n    \"total\": 50\n}"
+						},
+						{
+							"name": "Get all event / matches",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{BASE_URL}}/matches?status=upcoming",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"matches"
+									],
+									"query": [
+										{
+											"key": "status",
+											"value": "upcoming",
+											"description": "'upcoming', 'played', 'postponed', 'cancelled'"
+										}
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "",
+							"header": [
+								{
+									"key": "Host",
+									"value": "localhost:8000"
+								},
+								{
+									"key": "Connection",
+									"value": "close"
+								},
+								{
+									"key": "X-Powered-By",
+									"value": "PHP/8.4.13"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache, private"
+								},
+								{
+									"key": "Date",
+									"value": "Thu, 30 Oct 2025 13:52:07 GMT"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Access-Control-Allow-Origin",
+									"value": "*"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"current_page\": 1,\n    \"data\": [\n        {\n            \"id\": 1,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"West Ham\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"London Stadium\",\n            \"stadium_capacity\": 60000,\n            \"match_date\": \"2026-01-14 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 28\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 3,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-20 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 13\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 6,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Liverpool\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-01 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 31\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 10,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Chelsea\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Stamford Bridge\",\n            \"stadium_capacity\": 40341,\n            \"match_date\": \"2025-12-17 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 12\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 12,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Leicester City\",\n            \"away_team\": \"Tottenham\",\n            \"venue\": \"King Power Stadium\",\n            \"stadium_capacity\": 32261,\n            \"match_date\": \"2026-03-23 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 23\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 13,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-16 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 4\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 15,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Manchester United\",\n            \"away_team\": \"Manchester City\",\n            \"venue\": \"Old Trafford\",\n            \"stadium_capacity\": 74140,\n            \"match_date\": \"2025-12-03 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 32\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 22,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"West Ham\",\n            \"away_team\": \"Chelsea\",\n            \"venue\": \"London Stadium\",\n            \"stadium_capacity\": 60000,\n            \"match_date\": \"2025-12-23 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 38\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 28,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Aston Villa\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2026-04-17 13:26:11\",\n            \"competition\": \"FA Cup\",\n            \"match_week\": \"Week 32\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 29,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2026-03-27 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 27\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 35,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Liverpool\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"Anfield\",\n            \"stadium_capacity\": 53394,\n            \"match_date\": \"2026-03-01 13:26:11\",\n            \"competition\": \"Premier League\",\n            \"match_week\": \"Week 15\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 36,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Arsenal\",\n            \"away_team\": \"Liverpool\",\n            \"venue\": \"Emirates Stadium\",\n            \"stadium_capacity\": 60704,\n            \"match_date\": \"2026-02-18 13:26:11\",\n            \"competition\": \"Carabao Cup\",\n            \"match_week\": \"Week 14\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 39,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Arsenal\",\n            \"away_team\": \"West Ham\",\n            \"venue\": \"Emirates Stadium\",\n            \"stadium_capacity\": 60704,\n            \"match_date\": \"2025-12-19 13:26:11\",\n            \"competition\": \"FA Cup\",\n            \"match_week\": \"Week 32\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 40,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Tottenham\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"Tottenham Hotspur Stadium\",\n            \"stadium_capacity\": 62850,\n            \"match_date\": \"2025-12-07 13:26:11\",\n            \"competition\": \"Champions League\",\n            \"match_week\": \"Week 15\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        },\n        {\n            \"id\": 44,\n            \"user_id\": 2,\n            \"season\": \"2025/2026\",\n            \"home_team\": \"Liverpool\",\n            \"away_team\": \"Arsenal\",\n            \"venue\": \"Anfield\",\n            \"stadium_capacity\": 53394,\n            \"match_date\": \"2026-03-28 13:26:11\",\n            \"competition\": \"FA Cup\",\n            \"match_week\": \"Week 25\",\n            \"status\": \"upcoming\",\n            \"created_at\": \"2025-10-30T13:26:11.000000Z\",\n            \"updated_at\": \"2025-10-30T13:26:11.000000Z\"\n        }\n    ],\n    \"first_page_url\": \"http://localhost:8000/api/matches?page=1\",\n    \"from\": 1,\n    \"last_page\": 2,\n    \"last_page_url\": \"http://localhost:8000/api/matches?page=2\",\n    \"links\": [\n        {\n            \"url\": null,\n            \"label\": \"&laquo; Previous\",\n            \"page\": null,\n            \"active\": false\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=1\",\n            \"label\": \"1\",\n            \"page\": 1,\n            \"active\": true\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=2\",\n            \"label\": \"2\",\n            \"page\": 2,\n            \"active\": false\n        },\n        {\n            \"url\": \"http://localhost:8000/api/matches?page=2\",\n            \"label\": \"Next &raquo;\",\n            \"page\": 2,\n            \"active\": false\n        }\n    ],\n    \"next_page_url\": \"http://localhost:8000/api/matches?page=2\",\n    \"path\": \"http://localhost:8000/api/matches\",\n    \"per_page\": 15,\n    \"prev_page_url\": null,\n    \"to\": 15,\n    \"total\": 16\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Tickets",
+			"item": [
+				{
+					"name": "Ticket Types",
+					"item": [
+						{
+							"name": "get all ticket types",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{AUTH_TOKEN}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{BASE_URL}}/ticket-types",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"ticket-types"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "book ticket",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{AUTH_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"match_id\": \"1\",\n    \"ticket_type_id\" : \"1\",\n    \"quantity\" : \"2\",\n    // \"status\" : \"paid\",\n    \"amount\" : \"1000\",\n    \"customer_name\" : \"Customer_name\" // nullable\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/tickets",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"tickets"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "New Request",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"match_id\": \"1\",\n    \"ticket_type_id\" : \"1\",\n    \"quantity\" : \"2\",\n    // \"status\" : \"paid\",\n    \"amount\" : \"1000\",\n    \"customer_name\" : \"Customer_name\" // nullable\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{BASE_URL}}/tickets",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"tickets"
+									]
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "",
+							"header": [
+								{
+									"key": "Host",
+									"value": "localhost:8000"
+								},
+								{
+									"key": "Connection",
+									"value": "close"
+								},
+								{
+									"key": "X-Powered-By",
+									"value": "PHP/8.4.13"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache, private"
+								},
+								{
+									"key": "Date",
+									"value": "Thu, 30 Oct 2025 13:45:07 GMT"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Access-Control-Allow-Origin",
+									"value": "*"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"tickets\": [\n        {\n            \"matche_id\": \"1\",\n            \"ticket_types_id\": \"1\",\n            \"user_id\": 1,\n            \"reference_no\": \"4ab39a46-9e67-4b1f-ad36-20d770e29483\",\n            \"status\": \"paid\",\n            \"customer_name\": \"Customer_name\",\n            \"amount\": 600,\n            \"updated_at\": \"2025-10-30T13:45:07.000000Z\",\n            \"created_at\": \"2025-10-30T13:45:07.000000Z\",\n            \"id\": 1\n        },\n        {\n            \"matche_id\": \"1\",\n            \"ticket_types_id\": \"1\",\n            \"user_id\": 1,\n            \"reference_no\": \"14905e08-999a-4c4c-9980-2f0e8c229c7b\",\n            \"status\": \"paid\",\n            \"customer_name\": \"Customer_name\",\n            \"amount\": 600,\n            \"updated_at\": \"2025-10-30T13:45:07.000000Z\",\n            \"created_at\": \"2025-10-30T13:45:07.000000Z\",\n            \"id\": 2\n        }\n    ],\n    \"message\": \"Tickets created successfully\"\n}"
+						}
+					]
+				},
+				{
+					"name": "validate ticket with ticket reference",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{AUTH_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/validate-ticket/:ticket_reference_no",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"validate-ticket",
+								":ticket_reference_no"
+							],
+							"variable": [
+								{
+									"key": "ticket_reference_no",
+									"value": "4ab39a46-9e67-4b1f-ad36-20d770e29483"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "New Request",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{BASE_URL}}/validate-ticket/:ticket_reference_no",
+									"host": [
+										"{{BASE_URL}}"
+									],
+									"path": [
+										"validate-ticket",
+										":ticket_reference_no"
+									],
+									"variable": [
+										{
+											"key": "ticket_reference_no",
+											"value": "4ab39a46-9e67-4b1f-ad36-20d770e29483"
+										}
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "",
+							"header": [
+								{
+									"key": "Host",
+									"value": "localhost:8000"
+								},
+								{
+									"key": "Connection",
+									"value": "close"
+								},
+								{
+									"key": "X-Powered-By",
+									"value": "PHP/8.4.13"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache, private"
+								},
+								{
+									"key": "Date",
+									"value": "Thu, 30 Oct 2025 13:54:50 GMT"
+								},
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Access-Control-Allow-Origin",
+									"value": "*"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"message\": \"Ticket status updated successfully.\",\n    \"type\": \"success\",\n    \"status\": \"NOT_ENTERED\",\n    \"id\": \"4ab39a46-9e67-4b1f-ad36-20d770e29483\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Make as enter / exited",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{AUTH_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/mark-ticket/:ticket_reference_no",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"mark-ticket",
+								":ticket_reference_no"
+							],
+							"variable": [
+								{
+									"key": "ticket_reference_no",
+									"value": "4ab39a46-9e67-4b1f-ad36-20d770e29483"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
