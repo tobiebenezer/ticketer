@@ -45,10 +45,11 @@ class _SplashScreenState extends State<SplashScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // Add your logo here
-            Icon(
-              Icons.confirmation_number,
-              size: 100,
-              color: Theme.of(context).primaryColor,
+            Image.asset(
+              'assets/images/Plateau_United.png',
+              width: 120,
+              height: 120,
+              fit: BoxFit.contain,
             ),
             const SizedBox(height: 24),
             const Text(

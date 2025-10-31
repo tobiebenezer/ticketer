@@ -13,7 +13,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _apiService = ApiService();
+  final _authApi = AuthApi();
   bool _isLoading = false;
 
   @override
@@ -29,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _isLoading = true;
       });
 
-      final success = await _apiService.login(
+      final success = await _authApi.login(
         _usernameController.text,
         _passwordController.text,
       );
@@ -74,7 +74,12 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                const FlutterLogo(size: 80.0),
+                Image.asset(
+                  'assets/images/Plateau_United.png',
+                  width: 80.0,
+                  height: 80.0,
+                  fit: BoxFit.contain,
+                ),
                 const SizedBox(height: 24.0),
                 Text(
                   'Welcome Back',
@@ -91,6 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Username',
                     prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -106,6 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Password',
                     prefixIcon: Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {

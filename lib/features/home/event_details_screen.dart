@@ -14,7 +14,7 @@ class EventDetailsScreen extends StatefulWidget {
 }
 
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
-  final ApiService _apiService = ApiService();
+  final TicketApi _ticketApi = TicketApi();
   List<Ticket> _tickets = [];
   bool _isLoading = true;
   String? _error;
@@ -27,7 +27,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Future<void> _fetchTickets() async {
     try {
-      final tickets = await _apiService.getTickets(widget.event.id);
+      final tickets = await _ticketApi.getTickets(widget.event.id);
       setState(() {
         _tickets = tickets;
         _isLoading = false;
@@ -57,27 +57,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Image.network(
-              widget.event.imageUrl,
+            Image.asset(
+              'assets/images/event_art.jpg',
               height: 250,
               fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return const Center(
-                  child: SizedBox(
-                    height: 250,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return const SizedBox(
-                  height: 250,
-                  child: Center(
-                    child: Icon(Icons.error, color: Colors.red, size: 50),
-                  ),
-                );
-              },
             ),
             Padding(
               padding: const EdgeInsets.all(16.0),

@@ -15,7 +15,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final ApiService _apiService = ApiService();
+  final EventApi _eventApi = EventApi();
   final LocalStorageService _localStorageService = LocalStorageService();
   List<Event> _events = [];
   List<Event> _filteredEvents = [];
@@ -54,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
-      events = await _apiService.getEvents();
+      events = await _eventApi.getEvents();
       await _localStorageService.cacheEvents(events);
       _setEvents(events);
     } catch (e) {
@@ -219,27 +219,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     topLeft: Radius.circular(12.0),
                     topRight: Radius.circular(12.0),
                   ),
-                  child: Image.network(
-                    event.imageUrl,
+                  child: Image.asset(
+                    'assets/images/event_art.jpg',
                     height: 180,
                     fit: BoxFit.cover,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const Center(
-                        child: SizedBox(
-                          height: 180,
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                      );
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return const SizedBox(
-                        height: 180,
-                        child: Center(
-                          child: Icon(Icons.error, color: Colors.red, size: 40),
-                        ),
-                      );
-                    },
                   ),
                 ),
                 Padding(

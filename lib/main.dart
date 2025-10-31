@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app/routes.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/theme/theme.dart';
 
 void main() {
   runApp(
@@ -21,10 +22,9 @@ class MyApp extends StatelessWidget {
       builder: (context, themeProvider, child) {
         return MaterialApp(
           title: 'Ticket Sales App',
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-            useMaterial3: true,
-          ),
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeProvider.themeMode,
           debugShowCheckedModeBanner: false,
           initialRoute: AppRoutes.splash, // Updated initial route
           routes: AppRoutes.getRoutes(),

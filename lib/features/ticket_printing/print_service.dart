@@ -1,10 +1,10 @@
-
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:qr/qr.dart' as qr;
 
 class PrintService {
   final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
@@ -281,9 +281,10 @@ class PrintService {
       img.fill(image, color: img.ColorRgb8(255, 255, 255));
 
       // Draw QR code
+      final qrImg = qr.QrImage(qrCode);
       for (int x = 0; x < moduleCount; x++) {
         for (int y = 0; y < moduleCount; y++) {
-          if (qrCode.isDark(y, x)) {
+          if (qrImg.isDark(y, x)) {
             // Draw black module
             img.fillRect(
               image,
