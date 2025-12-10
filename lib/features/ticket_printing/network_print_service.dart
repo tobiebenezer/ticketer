@@ -142,7 +142,7 @@ class NetworkPrintService {
     }
   }
 
-  /// Build ticket widget with full control over layout
+  /// Build ticket widget with space for logo at top (composited later)
   Widget _buildTicketWidget({
     required String eventName,
     required String ticketType,
@@ -162,135 +162,344 @@ class NetworkPrintService {
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-    // final txnShort = transactionId.length > 12 ? '...${transactionId.substring(transactionId.length - 12)}' : transactionId;
-    final txnShort = transactionId;
     final isWide = paperWidthPx > 400;
-    final qrSize = isWide ? 200.0 : 150.0;
+    final qrSize = isWide ? 200.0 : 160.0;
 
     return Container(
       width: paperWidthPx,
       color: Colors.white,
-      padding: EdgeInsets.symmetric(horizontal: isWide ? 20 : 12, vertical: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Space for logo (will be composited later)
-          const SizedBox(height: 110),
-          Text(
-            'TICKET #$ticketNumber/$totalTickets',
-            style: TextStyle(
-              fontSize: isWide ? 20 : 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          // Event
-          Text(
-            eventName.toUpperCase(),
-            style: TextStyle(
-              fontSize: isWide ? 18 : 16,
-              fontWeight: FontWeight.w900,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 4),
-          // Date
-          Text(
-            dateStr,
-            style: TextStyle(
-              fontSize: isWide ? 16 : 14,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          if (venue != null && venue.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              venue,
-              style: TextStyle(
-                fontSize: isWide ? 16 : 14,
-                fontWeight: FontWeight.w600,
+      padding: const EdgeInsets.all(6),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.black, width: 3),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Top dashed decoration
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: List.generate(
+                  isWide ? 40 : 30,
+                  (index) => Expanded(
+                    child: Container(
+                      height: 3,
+                      margin: const EdgeInsets.symmetric(horizontal: 1),
+                      decoration: BoxDecoration(
+                        color: index % 2 == 0
+                            ? Colors.black
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(1),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              textAlign: TextAlign.center,
             ),
-          ] else ...[
-            const SizedBox(height: 4),
-            Text(
-              'Jos New Stadium',
-              style: TextStyle(
-                fontSize: isWide ? 14 : 12,
-                fontWeight: FontWeight.w600,
+
+            // Main Content
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: isWide ? 16 : 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Space for logo (will be composited later)
+                  const SizedBox(height: 100),
+
+                  // Event Name
+                  Text(
+                    eventName.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: isWide ? 24 : 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  SizedBox(height: isWide ? 8 : 6),
+
+                  // Ticket Type Badge
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isWide ? 16 : 12,
+                      vertical: isWide ? 6 : 4,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black, width: 2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      ticketType.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: isWide ? 18 : 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: isWide ? 12 : 10),
+                  const Divider(height: 2, thickness: 2, color: Colors.black),
+                  SizedBox(height: isWide ? 12 : 10),
+
+                  // Date & Time Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.calendar_today, size: isWide ? 18 : 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        dateStr,
+                        style: TextStyle(
+                          fontSize: isWide ? 16 : 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(width: isWide ? 24 : 16),
+                      Icon(Icons.access_time, size: isWide ? 18 : 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        timeStr,
+                        style: TextStyle(
+                          fontSize: isWide ? 16 : 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  SizedBox(height: isWide ? 8 : 6),
+
+                  // Venue
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.location_on, size: isWide ? 18 : 16),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          venue ?? 'Jos New Stadium',
+                          style: TextStyle(
+                            fontSize: isWide ? 15 : 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  SizedBox(height: isWide ? 12 : 10),
+
+                  // Price & Ticket Number Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'PRICE',
+                            style: TextStyle(
+                              fontSize: isWide ? 12 : 10,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '₦${price.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: isWide ? 28 : 24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isWide ? 14 : 12,
+                          vertical: isWide ? 8 : 6,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.black, width: 2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              'TICKET',
+                              style: TextStyle(
+                                fontSize: isWide ? 10 : 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '#$ticketNumber/$totalTickets',
+                              style: TextStyle(
+                                fontSize: isWide ? 18 : 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  SizedBox(height: isWide ? 12 : 10),
+
+                  // Customer Info
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(isWide ? 12 : 10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black, width: 1.5),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TICKET HOLDER',
+                          style: TextStyle(
+                            fontSize: isWide ? 10 : 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          customerName.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: isWide ? 16 : 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (customerPhone != null && customerPhone.isNotEmpty)
+                          Text(
+                            customerPhone,
+                            style: TextStyle(fontSize: isWide ? 13 : 12),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            SizedBox(height: isWide ? 8 : 6),
+
+            // Stub Divider with notches (perforation line)
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                // Dashed line
+                Row(
+                  children: List.generate(
+                    isWide ? 35 : 25,
+                    (index) => Expanded(
+                      child: Container(
+                        height: 4,
+                        color: index % 2 == 0 ? Colors.black : Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                // Left notch (semicircle)
+                Positioned(
+                  left: 0,
+                  child: Container(
+                    width: isWide ? 18 : 14,
+                    height: isWide ? 36 : 28,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        topRight: Radius.circular(50),
+                        bottomRight: Radius.circular(50),
+                      ),
+                    ),
+                  ),
+                ),
+                // Right notch (semicircle)
+                Positioned(
+                  right: 0,
+                  child: Container(
+                    width: isWide ? 18 : 14,
+                    height: isWide ? 36 : 28,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(50),
+                        bottomLeft: Radius.circular(50),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            SizedBox(height: isWide ? 10 : 8),
+
+            // QR Code Section
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: isWide ? 16 : 10),
+              child: Column(
+                children: [
+                  // QR Code - Large & Centered
+                  Container(
+                    padding: EdgeInsets.all(isWide ? 10 : 8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black, width: 3),
+                    ),
+                    child: QrImageView(
+                      data: validationUrl,
+                      version: QrVersions.auto,
+                      size: qrSize,
+                      padding: EdgeInsets.zero,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+
+                  SizedBox(height: isWide ? 10 : 8),
+
+                  Text(
+                    'SCAN TO ENTER',
+                    style: TextStyle(
+                      fontSize: isWide ? 16 : 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Bottom dashed decoration
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: List.generate(
+                  isWide ? 40 : 30,
+                  (index) => Expanded(
+                    child: Container(
+                      height: 3,
+                      margin: const EdgeInsets.symmetric(horizontal: 1),
+                      decoration: BoxDecoration(
+                        color: index % 2 == 0
+                            ? Colors.black
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(1),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
-          const Divider(height: 12, thickness: 2),
-          // Ticket Type + Price
-          Text(
-            '$ticketType  ₦${price.toStringAsFixed(0)}',
-            style: TextStyle(
-              fontSize: isWide ? 16 : 14,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 4),
-          // Customer
-          Text(
-            customerName,
-            style: TextStyle(
-              fontSize: isWide ? 14 : 13,
-              fontWeight: FontWeight.w600,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          if (customerPhone != null && customerPhone.isNotEmpty)
-            Text(
-              customerPhone,
-              style: TextStyle(
-                fontSize: isWide ? 13 : 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          const SizedBox(height: 8),
-          // QR Code
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.black, width: 2),
-            ),
-            child: QrImageView(
-              data: validationUrl,
-              version: QrVersions.auto,
-              size: qrSize,
-              backgroundColor: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'SCAN TO VALIDATE',
-            style: TextStyle(
-              fontSize: isWide ? 14 : 12,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const Divider(height: 12, thickness: 2),
-          // Footer with date and time
-          Text(
-            '$txnShort',
-            style: TextStyle(
-              fontSize: isWide ? 12 : 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '$dateStr  $timeStr',
-            style: TextStyle(
-              fontSize: isWide ? 12 : 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -308,7 +517,7 @@ class NetworkPrintService {
         return ticketBytes;
       }
 
-      // Resize logo to fit - preserve aspect ratio, target ~100px height for bolder look
+      // Resize logo to fit - preserve aspect ratio, target ~100px height
       final targetHeight = 100;
       final aspectRatio = logoImage.width / logoImage.height;
       final targetWidth = (targetHeight * aspectRatio).round();
@@ -320,7 +529,7 @@ class NetworkPrintService {
 
       // Calculate center position for logo at the top
       final x = (ticketImage.width - resizedLogo.width) ~/ 2;
-      final y = 4; // Top padding
+      final y = 12; // Top padding
 
       print(
         'Compositing logo at ($x, $y) - ticket: ${ticketImage.width}x${ticketImage.height}, logo: ${resizedLogo.width}x${resizedLogo.height}',
@@ -405,33 +614,13 @@ class NetworkPrintService {
     }
   }
 
-  /// Load logo as bytes and convert to black and white for thermal printing
+  /// Load logo as bytes for thermal printing
   Future<Uint8List?> _loadLogoBytes() async {
     try {
       final data = await rootBundle.load('assets/images/Plateau_United.png');
-      final logoBytes = data.buffer.asUint8List();
-
-      // Convert to black and white for thermal printer compatibility
-      final processedLogo = await _convertToBlackAndWhite(logoBytes);
-      return processedLogo ?? logoBytes;
+      return data.buffer.asUint8List();
     } catch (e) {
-      return null;
-    }
-  }
-
-  /// Convert image to black and white for thermal printing
-  /// Removes background by making light pixels transparent/white
-  Future<Uint8List?> _convertToBlackAndWhite(Uint8List imageBytes) async {
-    try {
-      final originalImage = img.decodeImage(imageBytes);
-      if (originalImage == null) return null;
-
-      // Just resize and return - let the printer handle it
-      // The image package's grayscale + threshold was causing issues
-      final resized = img.copyResize(originalImage, width: 100);
-      return Uint8List.fromList(img.encodePng(resized));
-    } catch (e) {
-      print('Error converting logo: $e');
+      print('Error loading logo: $e');
       return null;
     }
   }
