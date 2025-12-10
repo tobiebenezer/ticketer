@@ -4,9 +4,9 @@ import 'dart:ui' as ui;
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:qr/qr.dart' as qr;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:myapp/core/constants/network_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,11 +15,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 
-
 class PrintService {
   final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
 
-  /// Print a single ticket with QR code
+  // Thermal printer paper width in pixels (58mm ≈ 384px at 203 DPI)
+  static const double kPaperWidthPx = 384.0;
+
+  /// Print a single ticket using Widget-to-Image rendering
   Future<bool> printTicket({
     required String eventName,
     required String ticketType,
@@ -32,6 +34,7 @@ class PrintService {
     required String customerName,
     String? customerEmail,
     String? customerPhone,
+    String? venue,
   }) async {
     try {
       // Check connection
@@ -43,70 +46,343 @@ class PrintService {
         }
       }
 
-      // Print header
-      await _printer.printNewLine();
-      await _printer.printCustom('TICKET', 3, 1); // Size 3, Center
-      await _printer.printNewLine();
-      await _printer.printCustom('Ticket #$ticketNumber of $totalTickets', 0, 1);
-      await _printer.printNewLine();
-      await _printer.printNewLine();
+      // Pre-load logo
+      final logoBytes = await _loadLogoBytes();
+      print(
+        'Logo loaded: ${logoBytes != null ? '${logoBytes.length} bytes' : 'null'}',
+      );
+      final logoImage = logoBytes != null ? img.decodeImage(logoBytes) : null;
 
-      // Event details section
-      await _printer.printCustom('================================', 0, 1);
-      await _printer.printCustom(eventName.toUpperCase(), 2, 1);
-      await _printer.printCustom('================================', 0, 1);
-      await _printer.printNewLine();
-      await _printer.printLeftRight('Type:', ticketType, 1);
-      await _printer.printLeftRight('Price:', 'N ${price.toStringAsFixed(2)}', 1);
-      await _printer.printNewLine();
+      // Generate ticket widget and convert to image
+      final ticketImageBytes = await _generateTicketImage(
+        eventName: eventName,
+        ticketType: ticketType,
+        price: price,
+        ticketNumber: ticketNumber,
+        totalTickets: totalTickets,
+        validationUrl: validationUrl,
+        transactionId: transactionId,
+        customerName: customerName,
+        customerEmail: customerEmail,
+        customerPhone: customerPhone,
+        logoImage: logoImage,
+        venue: venue,
+      );
 
-      // Customer details
-      await _printer.printCustom('--------------------------------', 0, 1);
-      await _printer.printCustom('CUSTOMER', 1, 0);
-      await _printer.printCustom(customerName, 0, 0);
-      if (customerEmail != null && customerEmail.isNotEmpty) {
-        await _printer.printCustom(customerEmail, 0, 0);
-      }
-      if (customerPhone != null && customerPhone.isNotEmpty) {
-        await _printer.printCustom(customerPhone, 0, 0);
-      }
-      await _printer.printNewLine();
-
-      // QR Code section
-      await _printer.printCustom('--------------------------------', 0, 1);
-      await _printer.printNewLine();
-
-      // Generate and print QR code
-      final qrImageBytes = await _generateQrImageBytes(validationUrl);
-      if (qrImageBytes != null) {
-        await _printer.printImageBytes(qrImageBytes);
+      if (ticketImageBytes != null) {
+        // Print the complete ticket as a single image
+        await _printer.printImageBytes(ticketImageBytes);
         await _printer.printNewLine();
-      } else {
-        // Fallback: print QR code using built-in method
-        await _printer.printQRcode(validationUrl, 200, 200, 1);
-        await _printer.printNewLine();
+        await _printer.paperCut();
+        return true;
       }
 
-      // Footer
-      await _printer.printCustom('SCAN THIS CODE AT ENTRANCE', 1, 1);
-      await _printer.printNewLine();
-      await _printer.printCustom('--------------------------------', 0, 1);
-
-      // Transaction info and Date/Time
-      final now = DateTime.now();
-      final dateStr = '${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}';
-      await _printer.printLeftRight('Txn:', transactionId.substring(0, transactionId.length > 20 ? 20 : transactionId.length), 0);
-      await _printer.printCustom(dateStr, 0, 1);
-
-      // Cut paper
-      await _printer.printNewLine();
-      await _printer.printNewLine();
-      await _printer.paperCut();
-
-      return true;
+      return false;
     } catch (e) {
       print('Error printing ticket: $e');
       return false;
+    }
+  }
+
+  /// Generate ticket as image from Flutter widget
+  Future<Uint8List?> _generateTicketImage({
+    required String eventName,
+    required String ticketType,
+    required double price,
+    required int ticketNumber,
+    required int totalTickets,
+    required String validationUrl,
+    required String transactionId,
+    required String customerName,
+    String? customerEmail,
+    String? customerPhone,
+    img.Image? logoImage,
+    String? venue,
+  }) async {
+    try {
+      final ticketWidget = _buildTicketWidget(
+        eventName: eventName,
+        ticketType: ticketType,
+        price: price,
+        ticketNumber: ticketNumber,
+        totalTickets: totalTickets,
+        validationUrl: validationUrl,
+        transactionId: transactionId,
+        customerName: customerName,
+        customerEmail: customerEmail,
+        customerPhone: customerPhone,
+        venue: venue,
+      );
+
+      // Convert widget to image
+      final bytes = await _widgetToImage(ticketWidget);
+
+      // Composite logo onto the ticket image if available
+      if (bytes != null && logoImage != null) {
+        return _compositeLogoOnTicket(bytes, logoImage);
+      }
+
+      return bytes;
+    } catch (e) {
+      print('Error generating ticket image: $e');
+      return null;
+    }
+  }
+
+  /// Build ticket widget with full control over layout
+  Widget _buildTicketWidget({
+    required String eventName,
+    required String ticketType,
+    required double price,
+    required int ticketNumber,
+    required int totalTickets,
+    required String validationUrl,
+    required String transactionId,
+    required String customerName,
+    String? customerEmail,
+    String? customerPhone,
+    String? venue,
+  }) {
+    final now = DateTime.now();
+    final dateStr =
+        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+    final timeStr =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final txnShort = transactionId.length > 12
+        ? '...${transactionId.substring(transactionId.length - 12)}'
+        : transactionId;
+
+    return Container(
+      width: kPaperWidthPx,
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Space for logo (will be composited later)
+          const SizedBox(height: 110),
+          Text(
+            'TICKET #$ticketNumber/$totalTickets',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          // Event
+          Text(
+            eventName.toUpperCase(),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          // Date
+          Text(
+            dateStr,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          if (venue != null && venue.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              venue,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+          ] else ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Jos New Stadium',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ],
+          const Divider(height: 12, thickness: 2),
+          // Ticket Type + Price
+          Text(
+            '$ticketType  ₦${price.toStringAsFixed(0)}',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          // Customer
+          Text(
+            customerName,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
+          ),
+          if (customerPhone != null && customerPhone.isNotEmpty)
+            Text(
+              customerPhone,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          const SizedBox(height: 8),
+          // QR Code
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.black, width: 2),
+            ),
+            child: QrImageView(
+              data: validationUrl,
+              version: QrVersions.auto,
+              size: 150,
+              backgroundColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'SCAN TO VALIDATE',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          ),
+          const Divider(height: 12, thickness: 2),
+          // Footer with date and time
+          Text(
+            txnShort,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$dateStr  $timeStr',
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Composite logo onto ticket image
+  Uint8List? _compositeLogoOnTicket(
+    Uint8List ticketBytes,
+    img.Image logoImage,
+  ) {
+    try {
+      final ticketImage = img.decodeImage(ticketBytes);
+      if (ticketImage == null) {
+        print('Failed to decode ticket image');
+        return ticketBytes;
+      }
+
+      // Resize logo to fit - preserve aspect ratio, target ~100px height for bolder look
+      final targetHeight = 100;
+      final aspectRatio = logoImage.width / logoImage.height;
+      final targetWidth = (targetHeight * aspectRatio).round();
+      final resizedLogo = img.copyResize(
+        logoImage,
+        width: targetWidth,
+        height: targetHeight,
+      );
+
+      // Calculate center position for logo at the top
+      final x = (ticketImage.width - resizedLogo.width) ~/ 2;
+      final y = 4; // Top padding
+
+      print(
+        'Compositing logo at ($x, $y) - ticket: ${ticketImage.width}x${ticketImage.height}, logo: ${resizedLogo.width}x${resizedLogo.height}',
+      );
+
+      // Draw logo pixel by pixel onto ticket
+      for (int ly = 0; ly < resizedLogo.height; ly++) {
+        for (int lx = 0; lx < resizedLogo.width; lx++) {
+          final pixel = resizedLogo.getPixel(lx, ly);
+          final destX = x + lx;
+          final destY = y + ly;
+          if (destX >= 0 &&
+              destX < ticketImage.width &&
+              destY >= 0 &&
+              destY < ticketImage.height) {
+            ticketImage.setPixel(destX, destY, pixel);
+          }
+        }
+      }
+
+      final result = Uint8List.fromList(img.encodePng(ticketImage));
+      print('Logo composited successfully, result: ${result.length} bytes');
+      return result;
+    } catch (e) {
+      print('Error compositing logo: $e');
+      return ticketBytes;
+    }
+  }
+
+  /// Convert Flutter widget to image bytes
+  Future<Uint8List?> _widgetToImage(Widget widget) async {
+    try {
+      final repaintBoundary = RenderRepaintBoundary();
+      final renderView = RenderView(
+        view: WidgetsBinding.instance.platformDispatcher.views.first,
+        child: RenderPositionedBox(
+          alignment: Alignment.topCenter,
+          child: repaintBoundary,
+        ),
+        configuration: const ViewConfiguration(
+          logicalConstraints: BoxConstraints(
+            maxWidth: kPaperWidthPx,
+            maxHeight: 2000,
+          ),
+          devicePixelRatio: 1.0,
+        ),
+      );
+
+      final pipelineOwner = PipelineOwner()..rootNode = renderView;
+      renderView.prepareInitialFrame();
+
+      final rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+        container: repaintBoundary,
+        child: MediaQuery(
+          data: const MediaQueryData(),
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: DefaultTextStyle(
+              style: const TextStyle(
+                color: Colors.black,
+                fontSize: 12,
+                fontFamily: 'Roboto',
+              ),
+              child: widget,
+            ),
+          ),
+        ),
+      ).attachToRenderTree(BuildOwner(focusManager: FocusManager()));
+
+      rootElement.performRebuild();
+      pipelineOwner.flushLayout();
+      pipelineOwner.flushCompositingBits();
+      pipelineOwner.flushPaint();
+
+      final image = await repaintBoundary.toImage(pixelRatio: 1.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+      return byteData?.buffer.asUint8List();
+    } catch (e) {
+      print('Error converting widget to image: $e');
+      return null;
+    }
+  }
+
+  /// Load logo as bytes and convert to black and white for thermal printing
+  Future<Uint8List?> _loadLogoBytes() async {
+    try {
+      final data = await rootBundle.load('assets/images/Plateau_United.png');
+      final logoBytes = data.buffer.asUint8List();
+
+      // Convert to black and white for thermal printer compatibility
+      final processedLogo = await _convertToBlackAndWhite(logoBytes);
+      return processedLogo ?? logoBytes;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Convert image to black and white for thermal printing
+  /// Removes background by making light pixels transparent/white
+  Future<Uint8List?> _convertToBlackAndWhite(Uint8List imageBytes) async {
+    try {
+      final originalImage = img.decodeImage(imageBytes);
+      if (originalImage == null) return null;
+
+      // Just resize and return - let the printer handle it
+      final resized = img.copyResize(originalImage, width: 100);
+      return Uint8List.fromList(img.encodePng(resized));
+    } catch (e) {
+      print('Error converting logo: $e');
+      return null;
     }
   }
 
@@ -123,11 +399,12 @@ class PrintService {
   }) async {
     final doc = pw.Document();
     final now = DateTime.now();
-    final dateStr = '${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}';
-    
+    final dateStr =
+        '${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}';
+
     // Load logo
     final logoImage = await _loadLogo();
-    
+
     for (int i = 0; i < numberOfTickets; i++) {
       final code = ticketCodes[i];
       final validationUrl = '${kBaseUrl.replaceAll('/api', '')}/validate/$code';
@@ -156,14 +433,16 @@ class PrintService {
                 style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
               ),
               pw.SizedBox(height: 20),
-              
+
               // Event Details Card
               pw.Container(
                 width: double.infinity,
                 padding: const pw.EdgeInsets.all(16),
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: PdfColors.grey400, width: 1),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -179,7 +458,10 @@ class PrintService {
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                       children: [
-                        pw.Text('Type:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        pw.Text(
+                          'Type:',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
                         pw.Text(ticketType),
                       ],
                     ),
@@ -187,56 +469,90 @@ class PrintService {
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                       children: [
-                        pw.Text('Price:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                        pw.Text('N ${price.toStringAsFixed(2)}', 
-                          style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                        pw.Text(
+                          'Price:',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
+                        pw.Text(
+                          'N ${price.toStringAsFixed(2)}',
+                          style: pw.TextStyle(
+                            fontSize: 14,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
               pw.SizedBox(height: 16),
-              
+
               // Customer Details
               pw.Container(
                 width: double.infinity,
                 padding: const pw.EdgeInsets.all(12),
                 decoration: pw.BoxDecoration(
                   color: PdfColors.grey100,
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('CUSTOMER', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+                    pw.Text(
+                      'CUSTOMER',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
                     pw.SizedBox(height: 6),
-                    pw.Text(customerName, style: const pw.TextStyle(fontSize: 12)),
+                    pw.Text(
+                      customerName,
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
                     if (customerEmail != null && customerEmail.isNotEmpty) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(customerEmail, style: pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+                      pw.Text(
+                        customerEmail,
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
                     ],
                     if (customerPhone != null && customerPhone.isNotEmpty) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(customerPhone, style: pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+                      pw.Text(
+                        customerPhone,
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
               pw.SizedBox(height: 20),
-              
+
               // QR Code
               pw.Center(
                 child: pw.Container(
                   padding: const pw.EdgeInsets.all(12),
                   decoration: pw.BoxDecoration(
                     border: pw.Border.all(color: PdfColors.grey300, width: 2),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                    borderRadius: const pw.BorderRadius.all(
+                      pw.Radius.circular(8),
+                    ),
                   ),
                   child: pw.BarcodeWidget(
                     barcode: pw.Barcode.qrCode(),
                     data: validationUrl,
-                    width: 160,
-                    height: 160,
+                    width: 200,
+                    height: 200,
                   ),
                 ),
               ),
@@ -251,15 +567,21 @@ class PrintService {
                 ),
               ),
               pw.Spacer(),
-              
+
               // Footer
               pw.Divider(color: PdfColors.grey300),
               pw.SizedBox(height: 8),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Transaction: $transactionId', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-                  pw.Text(dateStr, style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text(
+                    'Transaction: $transactionId',
+                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+                  ),
+                  pw.Text(
+                    dateStr,
+                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+                  ),
                 ],
               ),
             ],
@@ -270,7 +592,9 @@ class PrintService {
 
     final bytes = await doc.save();
     final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/tickets_${DateTime.now().millisecondsSinceEpoch}.pdf');
+    final file = File(
+      '${dir.path}/tickets_${DateTime.now().millisecondsSinceEpoch}.pdf',
+    );
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
   }
@@ -299,6 +623,7 @@ class PrintService {
     String? deviceAddress,
     void Function(String pdfPath)? onSavedPdf,
     int connectTimeoutMs = 1200,
+    String? venue,
   }) async {
     try {
       // Try Wi‑Fi printing first if preferred and IP is saved
@@ -319,6 +644,7 @@ class PrintService {
             customerName: customerName,
             customerEmail: customerEmail,
             customerPhone: customerPhone,
+            venue: venue,
           );
           if (ok) return true;
         }
@@ -362,11 +688,13 @@ class PrintService {
           ticketNumber: i + 1,
           totalTickets: numberOfTickets,
           ticketCode: ticketCodes[i],
-          validationUrl: '${kBaseUrl.replaceAll('/api', '')}/validate/${ticketCodes[i]}',
+          validationUrl:
+              '${kBaseUrl.replaceAll('/api', '')}/validate/${ticketCodes[i]}',
           transactionId: transactionId,
           customerName: customerName,
           customerEmail: customerEmail,
           customerPhone: customerPhone,
+          venue: venue,
         );
 
         if (!success) {
@@ -399,7 +727,10 @@ class PrintService {
     }
   }
 
-  Future<bool> ensureConnected({String? deviceAddress, int timeoutMs = 1200}) async {
+  Future<bool> ensureConnected({
+    String? deviceAddress,
+    int timeoutMs = 1200,
+  }) async {
     try {
       final isConn = await _printer.isConnected;
       if (isConn == true) return true;
@@ -440,10 +771,10 @@ class PrintService {
       }
 
       await _printer.connect(target);
-      
+
       // Wait briefly for connection to establish
       await Future.delayed(const Duration(milliseconds: 400));
-      
+
       bool? isConnected = await _printer.isConnected;
       return isConnected == true;
     } catch (e) {
@@ -491,88 +822,6 @@ class PrintService {
       await _printer.disconnect();
     } catch (e) {
       print('Error disconnecting: $e');
-    }
-  }
-
-  /// Generate QR code as image bytes
-  Future<Uint8List?> _generateQrImageBytes(String data) async {
-    try {
-      // Validate QR data
-      final qrValidationResult = QrValidator.validate(
-        data: data,
-        version: QrVersions.auto,
-        errorCorrectionLevel: QrErrorCorrectLevel.L,
-      );
-
-      if (qrValidationResult.status != QrValidationStatus.valid) {
-        print('Invalid QR data');
-        return null;
-      }
-
-      // Create QR painter
-      final qrPainter = QrPainter.withQr(
-        qr: qrValidationResult.qrCode!,
-        color: const Color(0xFF000000),
-        emptyColor: const Color(0xFFFFFFFF),
-        gapless: true,
-      );
-
-      // Convert to image
-      final picData = await qrPainter.toImageData(
-        300.0, // Size in pixels
-        format: ui.ImageByteFormat.png,
-      );
-
-      if (picData == null) {
-        print('Failed to generate QR image data');
-        return null;
-      }
-
-      return picData.buffer.asUint8List();
-    } catch (e) {
-      print('Error generating QR image: $e');
-      return null;
-    }
-  }
-
-  /// Alternative: Generate QR using image package (more control)
-  Future<Uint8List?> _generateQrImageBytesAlternative(String data) async {
-    try {
-      final qrValidationResult = QrValidator.validate(
-        data: data,
-        version: QrVersions.auto,
-        errorCorrectionLevel: QrErrorCorrectLevel.L,
-      );
-
-      if (qrValidationResult.status != QrValidationStatus.valid) {
-        return null;
-      }
-
-      final qrCode = qrValidationResult.qrCode!;
-      final moduleCount = qrCode.moduleCount;
-      final pixelSize = 10; // Size of each QR module in pixels
-      // final imageSize = moduleCount * pixelSize; // unused variable removed
-
-      // Create white background image
-      final image = img.Image(moduleCount * pixelSize, moduleCount * pixelSize);
-      img.fill(image, img.getColor(255, 255, 255));
-
-      // Draw QR code
-      final qrImg = qr.QrImage(qrCode);
-      for (int x = 0; x < moduleCount; x++) {
-        for (int y = 0; y < moduleCount; y++) {
-          if (qrImg.isDark(y, x)) {
-            // Draw black module
-            img.fillRect(image, x * pixelSize, y * pixelSize, (x + 1) * pixelSize, (y + 1) * pixelSize, img.getColor(0, 0, 0));
-          }
-        }
-      }
-
-      // Encode as PNG
-      return Uint8List.fromList(img.encodePng(image));
-    } catch (e) {
-      print('Error generating QR image (alternative): $e');
-      return null;
     }
   }
 
