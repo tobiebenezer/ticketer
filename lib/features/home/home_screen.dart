@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:myapp/core/providers/theme_provider.dart';
 import 'package:myapp/data/models/event_model.dart';
 import 'package:myapp/data/services/api_service.dart';
+import 'package:myapp/data/services/offline_event_service.dart';
 import 'package:provider/provider.dart';
-import 'package:myapp/data/services/local_storage_service.dart';
 import 'package:myapp/features/home/event_details_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:myapp/core/constants/network_constants.dart';
@@ -18,8 +18,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final EventApi _eventApi = EventApi();
-  final LocalStorageService _localStorageService = LocalStorageService();
+  final OfflineEventService _offlineEventService = OfflineEventService();
   List<Event> _events = [];
   List<Event> _filteredEvents = [];
   bool _isLoading = true;
@@ -42,7 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
         await prefs.remove(kAuthTokenKey);
       } catch (_) {}
       if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
       }
     };
   }
@@ -73,20 +74,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       List<Event> events;
-      if (!forceRefresh) {
-        events = await _localStorageService.getCachedEvents();
-        if (events.isNotEmpty) {
-          _setEvents(events);
-          return;
-        }
+
+      if (forceRefresh) {
+        // Force refresh from API
+        events = await _offlineEventService.refreshEvents();
+      } else {
+        // Cache-first: Try cache, fallback to API
+        events = await _offlineEventService.getEvents();
       }
 
-      events = await _eventApi.getEvents();
-      await _localStorageService.cacheEvents(events);
       _setEvents(events);
     } catch (e) {
+      // Check if we have cached data to show
+      try {
+        final cachedEvents = await _offlineEventService.getEvents();
+        if (cachedEvents.isNotEmpty) {
+          _setEvents(cachedEvents);
+          // Show a subtle message that we're offline
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Showing cached events (offline mode)'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+          return;
+        }
+      } catch (_) {}
+
       setState(() {
-        _error = 'Failed to load events. Please try again later.';
+        _error = 'Failed to load events. Please check your connection.';
         _isLoading = false;
       });
     }
@@ -104,7 +122,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final query = _searchController.text.toLowerCase();
     setState(() {
       _filteredEvents = _events.where((event) {
-        final categoryMatches = _selectedCategory == 'All' ||
+        final categoryMatches =
+            _selectedCategory == 'All' ||
             event.status.toLowerCase() == _selectedCategory.toLowerCase();
         final title = '${event.homeTeam} vs ${event.awayTeam}'.toLowerCase();
         final searchMatches =
@@ -147,7 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: const Icon(Icons.login),
                   tooltip: 'Login',
                   onPressed: () {
-                    Navigator.of(context).pushNamed(AppRoutes.login).then((_) => _loadAuthState());
+                    Navigator.of(
+                      context,
+                    ).pushNamed(AppRoutes.login).then((_) => _loadAuthState());
                   },
                 )
               : IconButton(
@@ -178,7 +199,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       } catch (_) {}
                       if (mounted) {
                         setState(() => _isGuest = true);
-                        Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+                        Navigator.of(context).pushNamedAndRemoveUntil(
+                          AppRoutes.login,
+                          (route) => false,
+                        );
                       }
                     }
                   },

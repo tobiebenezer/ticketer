@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/services/api_service.dart';
+import 'package:myapp/data/services/post_login_sync_service.dart';
 import 'package:myapp/app/routes.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,7 +15,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authApi = AuthApi();
+  final _postLoginSync = PostLoginSyncService();
   bool _isLoading = false;
+  bool _isSyncing = false;
 
   @override
   void dispose() {
@@ -28,25 +31,52 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _isLoading = true;
       });
-      
-    
-      final success = await _authApi.login(
+
+      final result = await _authApi.login(
         _usernameController.text,
         _passwordController.text,
       );
 
       if (!mounted) return;
 
-      setState(() {
-        _isLoading = false;
-      });
+      if (result.isSuccess) {
+        // Login successful, trigger post-login sync
+        setState(() {
+          _isLoading = false;
+          _isSyncing = true;
+        });
 
-      if (success) {
+        final syncResult = await _postLoginSync.syncAfterLogin();
+
+        if (!mounted) return;
+
+        setState(() {
+          _isSyncing = false;
+        });
+
+        // Show sync result
+        if (syncResult.isSuccess) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Synced: ${syncResult.summary}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+
+        // Navigate to home
         Navigator.pushReplacementNamed(context, AppRoutes.home);
       } else {
+        setState(() {
+          _isLoading = false;
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invalid username or password'),
+          SnackBar(
+            content: Text(
+              result.errorMessage ?? 'Invalid username or password',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -117,8 +147,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 32.0),
-                _isLoading
-                    ? const CircularProgressIndicator()
+                _isLoading || _isSyncing
+                    ? Column(
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16.0),
+                          Text(
+                            _isSyncing
+                                ? 'Syncing offline data...'
+                                : 'Logging in...',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      )
                     : ElevatedButton(
                         onPressed: _login,
                         style: ElevatedButton.styleFrom(

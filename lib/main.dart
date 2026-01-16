@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:myapp/data/services/sync_service.dart';
 import 'package:provider/provider.dart';
 import 'app/routes.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/theme/theme.dart';
 
-void main() {
+// Global SyncService instance
+final SyncService _syncService = SyncService();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize automatic sync
+  await _syncService.initialize();
+
   runApp(
     ChangeNotifierProvider(
       create: (context) => ThemeProvider(),
@@ -13,8 +22,19 @@ void main() {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void dispose() {
+    _syncService.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +46,7 @@ class MyApp extends StatelessWidget {
           darkTheme: AppTheme.dark,
           themeMode: themeProvider.themeMode,
           debugShowCheckedModeBanner: false,
-          initialRoute: AppRoutes.splash, // Updated initial route
+          initialRoute: AppRoutes.splash,
           routes: AppRoutes.getRoutes(),
           onGenerateRoute: AppRoutes.generateRoute,
         );

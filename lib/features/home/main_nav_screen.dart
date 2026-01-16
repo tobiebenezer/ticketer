@@ -17,12 +17,29 @@ class MainNavScreen extends StatefulWidget {
 class _MainNavScreenState extends State<MainNavScreen> {
   int _currentIndex = 0;
 
-  late final List<Widget> _pages = const [
-    HomeScreen(),
-    TicketsHistoryScreen(),
-    TicketValidatorScreen(),
-    SettingsScreen(),
-  ];
+  int? _activeEventId;
+
+  Future<void> _loadActiveEventId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = prefs.getInt('kActiveEventId');
+    if (!mounted) return;
+    setState(() {
+      _activeEventId = id;
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActiveEventId();
+  }
+
+  List<Widget> get _pages => [
+        const HomeScreen(),
+        const TicketsHistoryScreen(),
+        TicketValidatorScreen(eventId: _activeEventId),
+        const SettingsScreen(),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +70,9 @@ class _MainNavScreenState extends State<MainNavScreen> {
               Navigator.of(context).pushNamed(AppRoutes.login);
             }
             return;
+          }
+          if (i == 2) {
+            await _loadActiveEventId();
           }
           setState(() => _currentIndex = i);
         },

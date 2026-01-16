@@ -32,7 +32,9 @@ class Ticket {
       referenceNo: json['reference_no'],
       status: json['status'],
       customerName: json['customer_name'],
-      amount: json['amount'].toDouble(),
+      amount: json['amount'] is String
+          ? double.parse(json['amount'])
+          : (json['amount'] as num).toDouble(),
       createdAt: json['created_at'],
       updatedAt: json['updated_at'],
     );

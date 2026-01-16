@@ -2,7 +2,7 @@ name: myapp
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -44,9 +44,8 @@ dependencies:
   dio: ^5.7.0
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.1.3
-  esc_pos_printer: ^4.1.0
-  esc_pos_utils: ^1.0.0
-  image: ^3.0.2
+  esc_pos_printer_lts:
+  image: ^4.1.0
   qr: ^3.0.1
   blue_thermal_printer: ^1.2.3
   uuid: ^4.5.1
@@ -56,6 +55,12 @@ dependencies:
   share_plus: ^10.0.2
   open_filex: ^4.5.0
   barcode_widget: ^2.0.4
+  printing: ^5.13.4
+  # Offline-first system dependencies
+  sqflite: ^2.4.2
+  cryptography: ^2.7.0
+  connectivity_plus: ^6.1.4
+  device_info_plus: ^11.2.0
 
 dev_dependencies:
   flutter_test:
@@ -67,16 +72,13 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
-  flutter_launcher_icons: ^0.11.0
-
-
+  flutter_launcher_icons: ^0.14.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
@@ -86,7 +88,7 @@ flutter:
   assets:
     - assets/images/Plateau_United.png
     - assets/images/event_art.jpg
-    
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

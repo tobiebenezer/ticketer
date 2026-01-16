@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/data/models/event_model.dart';
 import 'package:myapp/data/models/ticket_type.dart';
-import 'package:myapp/data/services/ticket_api.dart';
+import 'package:myapp/data/services/offline_ticket_type_service.dart';
+import 'package:myapp/data/services/sync_service.dart';
+import 'package:myapp/data/local/database_helper.dart';
 import 'package:myapp/features/checkout/sell_ticket_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final Event event;
@@ -14,37 +17,99 @@ class EventDetailsScreen extends StatefulWidget {
 }
 
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
-  final TicketApi _ticketApi = TicketApi();
+  final OfflineTicketTypeService _offlineTicketTypeService =
+      OfflineTicketTypeService();
+  final SyncService _syncService = SyncService();
+  final DatabaseHelper _db = DatabaseHelper();
   List<TicketType> _ticketTypes = [];
   bool _isLoading = true;
   String? _error;
+  int _validatedCount = 0;
+  bool _isBootstrapped = false;
 
   @override
   void initState() {
     super.initState();
+    _setActiveEvent();
+    _loadValidatedCount();
+    _bootstrapEventIfNeeded();
     _fetchTicketTypes();
   }
 
+  Future<void> _setActiveEvent() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('kActiveEventId', widget.event.id);
+  }
+
+  Future<void> _loadValidatedCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'validatedCount_event_${widget.event.id}';
+    final count = prefs.getInt(key) ?? 0;
+    if (!mounted) return;
+    setState(() {
+      _validatedCount = count;
+    });
+  }
+
+  /// Bootstrap event for offline sales if not already done
+  Future<void> _bootstrapEventIfNeeded() async {
+    try {
+      // Check if event is already bootstrapped
+      final isBootstrapped = await _db.isEventCached(widget.event.id);
+
+      if (!isBootstrapped) {
+        print(
+          'Event ${widget.event.id} not bootstrapped, bootstrapping now...',
+        );
+        final success = await _syncService.bootstrapEvent(widget.event.id);
+        if (success) {
+          print('Event ${widget.event.id} bootstrapped successfully');
+          if (!mounted) return;
+          setState(() {
+            _isBootstrapped = true;
+          });
+        } else {
+          print('Failed to bootstrap event ${widget.event.id}');
+        }
+      } else {
+        print('Event ${widget.event.id} already bootstrapped');
+        if (!mounted) return;
+        setState(() {
+          _isBootstrapped = true;
+        });
+      }
+    } catch (e) {
+      print('Error bootstrapping event: $e');
+    }
+  }
+
   Future<void> _fetchTicketTypes() async {
-    // try {
-      final ticketTypes = await _ticketApi.getTicketTypes();
+    try {
+      // Cache-first (Internet Once): Try match-specific cache, fallback to API
+      final ticketTypes = await _offlineTicketTypeService.getTicketTypes(
+        matchId: widget.event.id,
+      );
+      if (!mounted) return;
       setState(() {
         _ticketTypes = ticketTypes;
         _isLoading = false;
       });
-    // } catch (e) {
-    //   setState(() {
-    //     _error = 'Failed to load tickets. Please try again later.';
-    //     _isLoading = false;
-    //   });
-    // }
+    } catch (e) {
+      print('Error fetching ticket types: $e');
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to load ticket types. Please check your connection.';
+        _isLoading = false;
+      });
+    }
   }
 
   void _navigateToSellTicket(TicketType ticketType) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SellTicketScreen(event: widget.event, ticketType: ticketType),
+        builder: (context) =>
+            SellTicketScreen(event: widget.event, ticketType: ticketType),
       ),
     );
   }
@@ -52,7 +117,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.event.homeTeam} vs ${widget.event.awayTeam}')),
+      appBar: AppBar(
+        title: Text('${widget.event.homeTeam} vs ${widget.event.awayTeam}'),
+      ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -89,6 +156,17 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       const SizedBox(width: 8.0),
                       Text(
                         widget.event.venue,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  Row(
+                    children: [
+                      const Icon(Icons.verified, size: 20.0),
+                      const SizedBox(width: 8.0),
+                      Text(
+                        'Validated: $_validatedCount',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ],
@@ -150,8 +228,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           margin: const EdgeInsets.symmetric(vertical: 4.0),
           child: ListTile(
             onTap: () => _navigateToSellTicket(ticketType),
-            title: Text(ticketType.name,
-                style: Theme.of(context).textTheme.titleMedium),
+            title: Text(
+              ticketType.name,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             subtitle: Text('₦${ticketType.price.toStringAsFixed(2)}'),
             trailing: const Icon(Icons.chevron_right),
           ),

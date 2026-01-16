@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:esc_pos_printer/esc_pos_printer.dart';
-import 'package:esc_pos_utils/esc_pos_utils.dart';
+import 'package:esc_pos_printer_lts/esc_pos_printer_lts.dart';
+import 'package:esc_pos_utils_lts/esc_pos_utils_lts.dart';
 import 'package:myapp/core/constants/network_constants.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -24,10 +24,13 @@ class NetworkPrintService {
     required int numberOfTickets,
     required List<String> ticketCodes,
     required String transactionId,
-    required String customerName,
+    String? customerName,
     String? customerEmail,
     String? customerPhone,
     String? venue,
+    List<int>? ticketIds,
+    List<int>? matchIds,
+    List<int>? ticketTypeIds,
   }) async {
     final profile = await CapabilityProfile.load();
     final printer = NetworkPrinter(paperSize, profile);
@@ -71,6 +74,13 @@ class NetworkPrintService {
           paperWidthPx: paperWidthPx,
           logoImage: logoBytes != null ? img.decodeImage(logoBytes) : null,
           venue: venue,
+          ticketId: ticketIds != null && i < ticketIds.length
+              ? ticketIds[i]
+              : null,
+          matchId: matchIds != null && i < matchIds.length ? matchIds[i] : null,
+          ticketTypeId: ticketTypeIds != null && i < ticketTypeIds.length
+              ? ticketTypeIds[i]
+              : null,
         );
 
         if (ticketImageBytes != null) {
@@ -82,6 +92,12 @@ class NetworkPrintService {
 
         printer.feed(1);
         printer.cut();
+        
+        // Delay between tickets to prevent printer buffer overflow
+        // This gives the printer time to process and print each ticket
+        if (i < numberOfTickets - 1) {
+          await Future.delayed(const Duration(milliseconds: 1500));
+        }
       }
     } catch (e) {
       try {
@@ -105,12 +121,15 @@ class NetworkPrintService {
     required int totalTickets,
     required String validationUrl,
     required String transactionId,
-    required String customerName,
+    String? customerName,
     String? customerEmail,
     String? customerPhone,
     required double paperWidthPx,
     img.Image? logoImage,
     String? venue,
+    int? ticketId,
+    int? matchId,
+    int? ticketTypeId,
   }) async {
     try {
       final ticketWidget = _buildTicketWidget(
@@ -126,6 +145,9 @@ class NetworkPrintService {
         customerPhone: customerPhone,
         paperWidthPx: paperWidthPx,
         venue: venue,
+        ticketId: ticketId,
+        matchId: matchId,
+        ticketTypeId: ticketTypeId,
       );
 
       final bytes = await _widgetToImage(ticketWidget, paperWidthPx);
@@ -151,11 +173,14 @@ class NetworkPrintService {
     required int totalTickets,
     required String validationUrl,
     required String transactionId,
-    required String customerName,
+    String? customerName,
     String? customerEmail,
     String? customerPhone,
     required double paperWidthPx,
     String? venue,
+    int? ticketId,
+    int? matchId,
+    int? ticketTypeId,
   }) {
     final now = DateTime.now();
     final dateStr =
@@ -206,6 +231,19 @@ class NetworkPrintService {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  if (ticketId != null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        'ID: $ticketId',
+                        style: TextStyle(
+                          fontSize: isWide ? 12 : 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+
                   // Space for logo (will be composited later)
                   const SizedBox(height: 100),
 
@@ -371,7 +409,7 @@ class NetworkPrintService {
                           ),
                         ),
                         Text(
-                          customerName.toUpperCase(),
+                          (customerName ?? 'GUEST').toUpperCase(),
                           style: TextStyle(
                             fontSize: isWide ? 16 : 14,
                             fontWeight: FontWeight.w800,
@@ -471,6 +509,26 @@ class NetworkPrintService {
                     style: TextStyle(
                       fontSize: isWide ? 16 : 14,
                       fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(height: isWide ? 6 : 4),
+                  // Ticket IDs: matchId-ticketTypeId-ticketId
+                  Text(
+                    '${matchId ?? "-"}-${ticketTypeId ?? "-"}-${ticketId ?? "-"}',
+                    style: TextStyle(
+                      fontSize: isWide ? 10 : 9,
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: isWide ? 4 : 3),
+                  // Ticket code (from validation URL)
+                  Text(
+                    validationUrl.split('/').last,
+                    style: TextStyle(
+                      fontSize: isWide ? 9 : 8,
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],

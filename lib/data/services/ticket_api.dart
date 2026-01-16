@@ -13,7 +13,7 @@ class TicketApi {
         '/tickets',
         queryParameters: {'match_id': matchId},
       );
-      
+
       if (response.statusCode == 200) {
         final data = response.data as Map<String, dynamic>;
         return (data['tickets'] as List)
@@ -44,23 +44,52 @@ class TicketApi {
           'customer_name': customerName,
         },
       );
-      
+
       if (response.statusCode == 201) {
         final data = response.data as Map<String, dynamic>;
         return (data['tickets'] as List)
             .map((json) => Ticket.fromJson(json))
             .toList();
       }
-      throw Exception('Failed to book tickets');
+      throw Exception('Failed to book tickets: Status ${response.statusCode}');
     } on DioException catch (e) {
-      throw Exception('Failed to book tickets: ${e.message}');
+      final errorData = e.response?.data;
+      print('BookTicket error: ${e.message}, response: $errorData');
+      throw Exception('Failed to book tickets: ${errorData ?? e.message}');
     }
   }
 
   Future<List<TicketType>> getTicketTypes() async {
     print("getTicketTypes");
     // try {
-      final response = await _dio.get('/ticket-types');
+    final response = await _dio.get('/ticket-types');
+    if (response.statusCode == 200) {
+      final data = response.data;
+      final List<dynamic> list;
+      if (data is List) {
+        list = data;
+      } else if (data is Map<String, dynamic> && data['data'] is List) {
+        list = data['data'] as List;
+      } else {
+        list = const [];
+      }
+      return list
+          .map((e) => TicketType.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    return [];
+    //   throw Exception('Failed to load ticket types');
+    // } on DioException catch (e) {
+    //   throw Exception('Failed to load ticket types: ${e.message}');
+    // }
+  }
+
+  /// Get ticket types for a specific match
+  Future<List<TicketType>> getTicketTypesForMatch(int matchId) async {
+    print("getTicketTypesForMatch: $matchId");
+    try {
+      final response = await _dio.get('/ticket-types/$matchId');
       if (response.statusCode == 200) {
         final data = response.data;
         final List<dynamic> list;
@@ -71,14 +100,16 @@ class TicketApi {
         } else {
           list = const [];
         }
-        return list.map((e) => TicketType.fromJson(e as Map<String, dynamic>)).toList();
+        return list
+            .map((e) => TicketType.fromJson(e as Map<String, dynamic>))
+            .toList();
       }
 
       return [];
-    //   throw Exception('Failed to load ticket types');
-    // } on DioException catch (e) {
-    //   throw Exception('Failed to load ticket types: ${e.message}');
-    // }
+    } on DioException catch (e) {
+      print('Failed to load ticket types for match $matchId: ${e.message}');
+      return [];
+    }
   }
 
   Future<TicketValidationResult> validateTicket(String reference) async {
@@ -98,7 +129,9 @@ class TicketApi {
     try {
       final response = await _dio.get('/mark-ticket/$reference');
       if (response.data is Map<String, dynamic>) {
-        return TicketValidationResult.fromJson(response.data as Map<String, dynamic>);
+        return TicketValidationResult.fromJson(
+          response.data as Map<String, dynamic>,
+        );
       }
       return TicketValidationResult(
         message: 'Ticket marked successfully',

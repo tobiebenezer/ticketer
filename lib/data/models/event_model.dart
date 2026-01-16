@@ -29,6 +29,18 @@ class Event {
     required this.updatedAt,
   });
 
+  /// Get event name (home vs away)
+  String get name => '$homeTeam vs $awayTeam';
+
+  /// Parse match date as DateTime
+  DateTime get matchDateParsed {
+    try {
+      return DateTime.parse(matchDate);
+    } catch (e) {
+      return DateTime.now();
+    }
+  }
+
   factory Event.fromJson(Map<String, dynamic> json) {
     return Event(
       id: json['id'],
