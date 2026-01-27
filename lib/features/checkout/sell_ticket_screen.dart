@@ -121,6 +121,8 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
       bool offlineSuccess = false;
       List<Ticket>? bookedTickets;
       List<String> offlineTicketIds = [];
+      List<int> offlineSequentialIds = [];
+      int? offlineTotalCount;
 
       if (preferOffline) {
         // OFFLINE-FIRST: Try offline sale first
@@ -136,6 +138,10 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
           if (result.isSuccess) {
             offlineSuccess = true;
             offlineTicketIds.add(result.ticketId!);
+            if (result.sequentialId != null) {
+              offlineSequentialIds.add(result.sequentialId!);
+            }
+            offlineTotalCount = result.totalTickets;
           } else {
             print('Offline single sale failed: ${result.errorMessage}');
           }
@@ -154,6 +160,13 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
             offlineTicketIds = batchResult.successfulTickets
                 .map((t) => t.ticketId!)
                 .toList();
+            offlineSequentialIds = batchResult.successfulTickets
+                .where((t) => t.sequentialId != null)
+                .map((t) => t.sequentialId!)
+                .toList();
+            offlineTotalCount = batchResult.successfulTickets.isNotEmpty
+                ? batchResult.successfulTickets.last.totalTickets
+                : null;
           } else {
             print(
               'Offline batch sale failed: ${batchResult.failCount} failures',
@@ -178,13 +191,13 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
 
         // Queue print jobs if auto-print enabled
         if (_autoPrintEnabled) {
-          for (int i = 0; i < offlineTicketIds.length; i++) {
-            _queuePrintJob(
-              ticketId: offlineTicketIds[i],
-              customerName: customerName,
-              ticketNumber: _ticketsSoldCount - quantity + i + 1,
-            );
-          }
+          // Queue ALL tickets as ONE batch job for proper 1/N, 2/N numbering
+          _queueBatchPrintJob(
+            ticketIds: offlineTicketIds,
+            customerName: customerName,
+            sequentialIds: offlineSequentialIds,
+            totalTickets: offlineTotalCount ?? offlineTicketIds.length,
+          );
         }
 
         // Show success message
@@ -291,16 +304,71 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     }
   }
 
-  /// Queue a print job and process it
+  /// Queue a batch print job (all tickets in one PDF with 1/N, 2/N numbering)
+  Future<void> _queueBatchPrintJob({
+    required List<String> ticketIds,
+    required String customerName,
+    required List<int> sequentialIds,
+    required int totalTickets,
+  }) async {
+    if (ticketIds.isEmpty) return;
+
+    setState(() {
+      _printingCount++;
+    });
+
+    try {
+      final success = await _printService.printMultipleTickets(
+        eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
+        ticketType: widget.ticketType.name,
+        price: widget.ticketType.price,
+        numberOfTickets: ticketIds.length,
+        ticketCodes: ticketIds,
+        transactionId: ticketIds.first,
+        customerName: customerName.isEmpty ? null : customerName,
+        ticketIds: sequentialIds.isNotEmpty ? sequentialIds : null,
+      );
+
+      if (mounted) {
+        setState(() {
+          _printingCount--;
+          if (success) {
+            _printedCount += ticketIds.length;
+          } else {
+            _printFailedCount += ticketIds.length;
+          }
+        });
+      }
+
+      if (!success) {
+        _showQuickMessage('Print failed - check printer', isError: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _printingCount--;
+          _printFailedCount += ticketIds.length;
+        });
+      }
+      debugPrint('Batch print failed: $e');
+      _showQuickMessage('Print error: $e', isError: true);
+    }
+  }
+
+  /// Queue a print job and process it (for single tickets)
   void _queuePrintJob({
     required String ticketId,
     required String customerName,
     required int ticketNumber,
+    int? sequentialId,
+    int? totalTickets,
   }) {
     final job = PrintJob(
       ticketId: ticketId,
       customerName: customerName,
       ticketNumber: ticketNumber,
+      sequentialId: sequentialId,
+      totalTickets: totalTickets,
     );
 
     setState(() {
@@ -319,22 +387,42 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     while (_printQueue.isNotEmpty) {
       final job = _printQueue.first;
 
+      // Skip already completed jobs
+      if (job.status == PrintStatus.completed) {
+        if (mounted) {
+          setState(() {
+            _printQueue.removeAt(0);
+          });
+        }
+        continue;
+      }
+
+      if (!mounted) break;
+
       setState(() {
         _printingCount++;
         job.status = PrintStatus.printing;
       });
 
       try {
+        String? savedPdfPath;
         final success = await _printService.printTicket(
           eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
           ticketType: widget.ticketType.name,
           price: widget.ticketType.price,
-          ticketNumber: job.ticketNumber,
-          totalTickets: _ticketsSoldCount,
+          ticketNumber:
+              job.sequentialId ??
+              job.ticketNumber, // Use sequential ID for 'X/Y'
+          totalTickets:
+              job.totalTickets ?? _ticketsSoldCount, // Use total from DB
           ticketCode: job.ticketId,
           validationUrl: job.ticketId,
           transactionId: job.ticketId,
           customerName: job.customerName.isEmpty ? null : job.customerName,
+          ticketId: job.sequentialId, // Use sequential ID for display, not UUID
+          onSavedPdf: (path) {
+            savedPdfPath = path;
+          },
         );
 
         if (mounted) {
@@ -342,17 +430,33 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
             job.status = success ? PrintStatus.completed : PrintStatus.failed;
             if (success) {
               _printedCount++;
+              // Only remove from queue if successful
+              _printQueue.removeAt(0);
             } else {
               _printFailedCount++;
+              // Keep failed job in queue for retry
             }
             _printingCount--;
-            _printQueue.removeAt(0);
           });
+
+          // Notify user if PDF fallback was used
+          if (savedPdfPath != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No printer found. Ticket saved to: $savedPdfPath'),
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
         }
 
         // Small delay between prints
-        if (_printQueue.isNotEmpty) {
-          await Future.delayed(const Duration(milliseconds: 300));
+        if (success && _printQueue.isNotEmpty) {
+          await Future.delayed(const Duration(milliseconds: 1000));
+        } else if (!success) {
+          // Stop processing queue on failure (e.g., paper out)
+          // User can retry manually
+          break;
         }
       } catch (e) {
         if (mounted) {
@@ -360,12 +464,38 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
             job.status = PrintStatus.failed;
             _printFailedCount++;
             _printingCount--;
-            _printQueue.removeAt(0);
+            // Keep failed job in queue for retry
           });
         }
         debugPrint('Print failed: $e');
+        debugPrint('Failed ticket ID: ${job.ticketId}');
+        // Stop processing on error
+        break;
       }
     }
+  }
+
+  /// Retry all failed print jobs
+  void _retryFailedPrints() {
+    // Reset failed jobs to queued status
+    setState(() {
+      for (final job in _printQueue) {
+        if (job.status == PrintStatus.failed) {
+          job.status = PrintStatus.queued;
+        }
+      }
+      _printFailedCount = 0;
+    });
+    // Restart queue processing
+    _processPrintQueue();
+  }
+
+  /// Clear all failed print jobs from queue
+  void _clearFailedPrints() {
+    setState(() {
+      _printQueue.removeWhere((job) => job.status == PrintStatus.failed);
+      _printFailedCount = 0;
+    });
   }
 
   /// Clear form and focus for next sale (fast mode)
@@ -436,7 +566,7 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                 ],
               )
             : const Text('Sell Ticket'),
-        actions: _isFastMode ? const [SyncIndicator()] : null,
+        actions: const [SyncIndicator()],
       ),
       body: _isFastMode ? _buildFastModeUI() : _buildNormalModeUI(),
     );
@@ -548,38 +678,82 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                         : Colors.blue.shade200,
                   ),
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    if (_printingCount > 0)
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      Icon(
-                        _printFailedCount > 0 ? Icons.warning : Icons.print,
-                        size: 16,
-                        color: _printFailedCount > 0
-                            ? Colors.orange.shade700
-                            : Colors.blue.shade700,
-                      ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _printingCount > 0
-                            ? 'Printing... ${_printQueue.length} in queue'
-                            : _printFailedCount > 0
-                            ? '$_printFailedCount print(s) failed'
-                            : 'All prints completed',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _printFailedCount > 0
-                              ? Colors.orange.shade700
-                              : Colors.blue.shade700,
+                    Row(
+                      children: [
+                        if (_printingCount > 0)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          Icon(
+                            _printFailedCount > 0 ? Icons.warning : Icons.print,
+                            size: 16,
+                            color: _printFailedCount > 0
+                                ? Colors.orange.shade700
+                                : Colors.blue.shade700,
+                          ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _printingCount > 0
+                                ? 'Printing... ${_printQueue.length} in queue'
+                                : _printFailedCount > 0
+                                ? '$_printFailedCount print(s) failed - ${_printQueue.length} in queue'
+                                : 'All prints completed',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _printFailedCount > 0
+                                  ? Colors.orange.shade700
+                                  : Colors.blue.shade700,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
+                    if (_printFailedCount > 0 && _printingCount == 0) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _retryFailedPrints,
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text(
+                                'Retry',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _clearFailedPrints,
+                              icon: const Icon(Icons.clear, size: 16),
+                              label: const Text(
+                                'Clear',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -736,12 +910,16 @@ class PrintJob {
   final String ticketId;
   final String customerName;
   final int ticketNumber;
+  final int? sequentialId; // Local DB sequential ID for display
+  final int? totalTickets; // Total local tickets for 'X/Y' display
   PrintStatus status;
 
   PrintJob({
     required this.ticketId,
     required this.customerName,
     required this.ticketNumber,
+    this.sequentialId,
+    this.totalTickets,
     this.status = PrintStatus.queued,
   });
 }

@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:myapp/core/services/app_settings_service.dart';
+import 'package:myapp/core/services/device_crypto_service.dart';
+import 'package:myapp/core/utils/device_info_util.dart';
 import 'package:myapp/data/local/database_helper.dart';
 import 'package:myapp/data/services/sync_service.dart';
 import 'package:uuid/uuid.dart';
@@ -9,15 +11,18 @@ class OfflineSaleService {
   final DatabaseHelper _db;
   final SyncService _syncService;
   final AppSettingsService settings;
+  final DeviceCryptoService _deviceCrypto;
   final _uuid = const Uuid();
 
   OfflineSaleService({
     DatabaseHelper? db,
     SyncService? syncService,
     AppSettingsService? settings,
+    DeviceCryptoService? deviceCrypto,
   }) : _db = db ?? DatabaseHelper(),
        _syncService = syncService ?? SyncService(),
-       settings = settings ?? AppSettingsService();
+       settings = settings ?? AppSettingsService(),
+       _deviceCrypto = deviceCrypto ?? DeviceCryptoService();
 
   /// Create a ticket offline
   ///
@@ -42,6 +47,9 @@ class OfflineSaleService {
       final tuid = _uuid.v4();
       final now = DateTime.now();
 
+      final deviceInfo = await DeviceInfoUtil.getDeviceInfo();
+      final deviceKeys = await _deviceCrypto.ensureKeyPair();
+
       // Create payload (will be signed by server during sync)
       final payloadData = {
         'tuid': tuid,
@@ -52,13 +60,19 @@ class OfflineSaleService {
         'amount': amount.toStringAsFixed(2),
         'issued_at': now.toIso8601String(),
         'issuer_type': 'device', // Mark as device-issued
+        'issuer_device_uid': deviceInfo.uid,
+        'issuer_key_version': deviceKeys.keyVersion,
       };
 
       final payload = jsonEncode(payloadData);
 
-      final eventPublicKey = eventCache['event_public_key'] as String;
+      final deviceSignature = await _deviceCrypto.signPayload(
+        payload: payload,
+        privateKeyBase64: deviceKeys.privateKeyBase64,
+        publicKeyBase64: deviceKeys.publicKeyBase64,
+      );
 
-      // Store ticket locally (using public key as marker - will be signed during sync)
+      // Store ticket locally (signature = device signature)
       await _db.insertLocalTicket(
         ticketId: tuid,
         matcheId: matcheId,
@@ -66,8 +80,7 @@ class OfflineSaleService {
         customerName: customerName,
         amount: amount,
         payload: payload,
-        signature:
-            eventPublicKey, // Use public key as marker for unsigned tickets
+        signature: deviceSignature,
         createdAt: now,
       );
 
@@ -76,19 +89,21 @@ class OfflineSaleService {
         // Silent fail - will sync later
       });
 
-      // Create QR payload with proper format: {"payload": "...", "signature": "..."}
-      // For offline tickets, signature = public key (marker for pending sync)
       final qrData = {
         'payload': payload,
-        'signature':
-            eventPublicKey, // Will be valid once synced and signed by server
+        'signature': deviceSignature,
       };
       final qrPayload = jsonEncode(qrData);
+
+      // Get total ticket count for display numbering
+      final totalCount = await _db.getLocalTicketCount();
 
       return OfflineSaleResult.success(
         ticketId: tuid,
         qrPayload: qrPayload,
         createdAt: now,
+        sequentialId: totalCount, // This ticket's number (1-based)
+        totalTickets: totalCount,
       );
     } catch (e) {
       return OfflineSaleResult.error('Failed to create ticket: $e');
@@ -161,6 +176,8 @@ class OfflineSaleResult {
   final String? qrPayload;
   final DateTime? createdAt;
   final String? errorMessage;
+  final int? sequentialId; // Display-friendly sequential ID (1-based)
+  final int? totalTickets; // Total tickets at time of creation
 
   OfflineSaleResult._({
     required this.isSuccess,
@@ -168,18 +185,24 @@ class OfflineSaleResult {
     this.qrPayload,
     this.createdAt,
     this.errorMessage,
+    this.sequentialId,
+    this.totalTickets,
   });
 
   factory OfflineSaleResult.success({
     required String ticketId,
     required String qrPayload,
     required DateTime createdAt,
+    int? sequentialId,
+    int? totalTickets,
   }) {
     return OfflineSaleResult._(
       isSuccess: true,
       ticketId: ticketId,
       qrPayload: qrPayload,
       createdAt: createdAt,
+      sequentialId: sequentialId,
+      totalTickets: totalTickets,
     );
   }
 

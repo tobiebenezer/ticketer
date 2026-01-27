@@ -41,7 +41,16 @@ class _OfflineTicketValidatorScreenState
   @override
   void initState() {
     super.initState();
-    _controller = MobileScannerController();
+    _controller = MobileScannerController(
+      formats: [
+        BarcodeFormat.qrCode,
+        BarcodeFormat.pdf417,
+        BarcodeFormat.dataMatrix,
+        BarcodeFormat.code128,
+        BarcodeFormat.code39,
+        BarcodeFormat.aztec,
+      ],
+    );
     _ensureCameraPermission();
     _loadEventAndCount();
   }

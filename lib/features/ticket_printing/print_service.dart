@@ -39,67 +39,25 @@ class PrintService {
     int? ticketId,
     int? matchId,
     int? ticketTypeId,
+    void Function(String pdfPath)? onSavedPdf,
   }) async {
-    try {
-      // On mobile, use WiFi/Network printing
-      if (Platform.isAndroid || Platform.isIOS) {
-        final prefs = await SharedPreferences.getInstance();
-        final wifiIp =
-            prefs.getString('kPreferredWifiPrinterIp') ?? '192.168.1.88';
-
-        if (wifiIp.isNotEmpty) {
-          final net = NetworkPrintService();
-          return await net.printMultipleTickets(
-            ip: wifiIp,
-            eventName: eventName,
-            ticketType: ticketType,
-            price: price,
-            numberOfTickets: 1,
-            ticketCodes: [ticketCode],
-            transactionId: transactionId,
-            customerName: customerName,
-            customerEmail: customerEmail,
-            customerPhone: customerPhone,
-            venue: venue,
-            ticketIds: ticketId != null ? [ticketId] : null,
-            matchIds: matchId != null ? [matchId] : null,
-            ticketTypeIds: ticketTypeId != null ? [ticketTypeId] : null,
-          );
-        }
-        return false;
-      }
-
-      // On desktop, use system printing
-      final pdf = await _generateThermalStylePdfDoc(
-        eventName: eventName,
-        ticketType: ticketType,
-        price: price,
-        numberOfTickets: 1,
-        ticketCodes: [ticketCode],
-        transactionId: transactionId,
-        customerName: customerName,
-        customerEmail: customerEmail,
-        customerPhone: customerPhone,
-        venue: venue,
-        ticketIds: ticketId != null ? [ticketId] : null,
-        matchIds: matchId != null ? [matchId] : null,
-        ticketTypeIds: ticketTypeId != null ? [ticketTypeId] : null,
-      );
-
-      // Print directly without dialog
-      final printer = await _getDefaultPrinter();
-      if (printer != null) {
-        final success = await Printing.directPrintPdf(
-          printer: printer,
-          onLayout: (format) => pdf.save(),
-        );
-        return success;
-      }
-      return false;
-    } catch (e) {
-      print('Error printing ticket: $e');
-      return false;
-    }
+    // Use the multi-path printing logic from printMultipleTickets
+    return await printMultipleTickets(
+      eventName: eventName,
+      ticketType: ticketType,
+      price: price,
+      numberOfTickets: 1,
+      ticketCodes: [ticketCode],
+      transactionId: transactionId,
+      customerName: customerName,
+      customerEmail: customerEmail,
+      customerPhone: customerPhone,
+      venue: venue,
+      ticketIds: ticketId != null ? [ticketId] : null,
+      matchIds: matchId != null ? [matchId] : null,
+      ticketTypeIds: ticketTypeId != null ? [ticketTypeId] : null,
+      onSavedPdf: onSavedPdf,
+    );
   }
 
   // Get default printer (only works on desktop/web)
@@ -207,19 +165,19 @@ class PrintService {
                       _buildDashedLine(),
                       pw.SizedBox(height: 6),
 
-                      // Ticket ID (top-right)
-                      if (ticketIds != null && i < ticketIds.length)
-                        pw.Align(
-                          alignment: pw.Alignment.centerRight,
-                          child: pw.Text(
-                            'ID: ${ticketIds[i]}',
-                            style: pw.TextStyle(
-                              fontSize: 7,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                            textAlign: pw.TextAlign.right,
+                      // Ticket ID (top-right) - show ticket code/reference
+                      pw.Align(
+                        alignment: pw.Alignment.centerRight,
+                        child: pw.Text(
+                          'ID: ${code.substring(0, code.length > 8 ? 8 : code.length).toUpperCase()}',
+                          style: pw.TextStyle(
+                            fontSize: 7,
+                            fontWeight: pw.FontWeight.bold,
                           ),
+                          textAlign: pw.TextAlign.right,
                         ),
+                      ),
+                      pw.SizedBox(height: 2),
 
                       // Logo (if available)
                       if (logoImage != null) ...[
@@ -411,7 +369,7 @@ class PrintService {
 
                       // QR Code
                       pw.Container(
-                        padding: const pw.EdgeInsets.all(5),
+                        padding: const pw.EdgeInsets.all(4),
                         decoration: pw.BoxDecoration(
                           border: pw.Border.all(
                             color: PdfColors.black,
@@ -421,12 +379,12 @@ class PrintService {
                         child: pw.BarcodeWidget(
                           barcode: pw.Barcode.qrCode(),
                           data: validationUrl,
-                          width: 80,
-                          height: 80,
+                          width: 70,
+                          height: 70,
                           drawText: false,
                         ),
                       ),
-                      pw.SizedBox(height: 5),
+                      pw.SizedBox(height: 4),
 
                       pw.Text(
                         'SCAN TO ENTER',
@@ -631,6 +589,7 @@ class PrintService {
       }
 
       // 4. Fallback: Save PDF
+      print('All print methods failed - saving to PDF as fallback');
       final pdfPath = await _savePdfToFile(
         eventName: eventName,
         ticketType: ticketType,

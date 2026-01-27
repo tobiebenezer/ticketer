@@ -121,6 +121,24 @@ class SyncApi {
       throw Exception('Failed to get pending batches: ${e.message}');
     }
   }
+
+  /// Get all tickets for a match for offline validation.
+  /// 
+  /// This is used to download tickets from other devices for offline validation.
+  Future<MatchTicketsResult> getMatchTickets(int matchId) async {
+    try {
+      final response = await _dio.get('/match-validaton/$matchId/tickets');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        return MatchTicketsResult.fromJson(data);
+      }
+
+      throw Exception('Failed to get match tickets: ${response.statusCode}');
+    } on DioException catch (e) {
+      throw Exception('Failed to get match tickets: ${e.message}');
+    }
+  }
 }
 
 // ==================== RESULT CLASSES ====================
@@ -256,6 +274,7 @@ class BootstrapData {
   final String validatedBloomFilter;
   final int snapshotVersion;
   final List<String> revokedDevices;
+  final List<Map<String, dynamic>> trustedDeviceKeys;
   final String serverTime;
 
   BootstrapData({
@@ -266,6 +285,7 @@ class BootstrapData {
     required this.validatedBloomFilter,
     required this.snapshotVersion,
     required this.revokedDevices,
+    required this.trustedDeviceKeys,
     required this.serverTime,
   });
 
@@ -278,6 +298,9 @@ class BootstrapData {
       validatedBloomFilter: json['validated_bloom_filter'] as String? ?? '',
       snapshotVersion: json['snapshot_version'] as int? ?? 0,
       revokedDevices: List<String>.from(json['revoked_devices'] as List? ?? []),
+      trustedDeviceKeys: List<Map<String, dynamic>>.from(
+        json['trusted_device_keys'] as List? ?? [],
+      ),
       serverTime: json['server_time'] as String? ?? '',
     );
   }
@@ -309,6 +332,50 @@ class SnapshotData {
       snapshotVersion: json['snapshot_version'] as int? ?? 0,
       stats: json['stats'] as Map<String, dynamic>? ?? {},
       serverTime: json['server_time'] as String? ?? '',
+    );
+  }
+}
+
+/// Match tickets result for offline validation
+class MatchTicketsResult {
+  final int matchId;
+  final List<MatchTicket> tickets;
+  final int count;
+  final String generatedAt;
+
+  MatchTicketsResult({
+    required this.matchId,
+    required this.tickets,
+    required this.count,
+    required this.generatedAt,
+  });
+
+  factory MatchTicketsResult.fromJson(Map<String, dynamic> json) {
+    return MatchTicketsResult(
+      matchId: json['match_id'] as int? ?? 0,
+      tickets: (json['tickets'] as List? ?? [])
+          .map((e) => MatchTicket.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      count: json['count'] as int? ?? 0,
+      generatedAt: json['generated_at'] as String? ?? '',
+    );
+  }
+}
+
+/// Individual ticket from match tickets list
+class MatchTicket {
+  final String ticketId;
+  final String referenceNo;
+
+  MatchTicket({
+    required this.ticketId,
+    required this.referenceNo,
+  });
+
+  factory MatchTicket.fromJson(Map<String, dynamic> json) {
+    return MatchTicket(
+      ticketId: json['ticket_id'] as String? ?? '',
+      referenceNo: json['reference_no'] as String? ?? '',
     );
   }
 }

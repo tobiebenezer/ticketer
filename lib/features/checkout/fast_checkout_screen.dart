@@ -213,6 +213,7 @@ class _FastCheckoutScreenState extends State<FastCheckoutScreen> {
       });
 
       try {
+        String? savedPdfPath;
         final success = await _printService.printTicket(
           eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
           ticketType: widget.ticketTypeName,
@@ -223,6 +224,9 @@ class _FastCheckoutScreenState extends State<FastCheckoutScreen> {
           validationUrl: job.ticketId,
           transactionId: job.ticketId,
           customerName: job.customerName.isEmpty ? null : job.customerName,
+          onSavedPdf: (path) {
+            savedPdfPath = path;
+          },
         );
 
         if (mounted) {
@@ -236,6 +240,15 @@ class _FastCheckoutScreenState extends State<FastCheckoutScreen> {
             _printingCount--;
             _printQueue.removeAt(0);
           });
+
+          if (savedPdfPath != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No printer found. Ticket saved to: $savedPdfPath'),
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
         }
 
         // Small delay between prints to avoid printer overload

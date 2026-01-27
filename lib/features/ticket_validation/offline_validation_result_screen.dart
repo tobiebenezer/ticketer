@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/core/services/offline_validation_service.dart';
+import 'package:myapp/data/services/offline_event_service.dart';
 import 'package:myapp/data/services/sync_service.dart';
 
 /// Enhanced Validation Result Screen with Offline Support
@@ -31,10 +32,12 @@ class _OfflineValidationResultScreenState
   final OfflineValidationService _validationService =
       OfflineValidationService();
   final SyncService _syncService = SyncService();
+  final OfflineEventService _offlineEventService = OfflineEventService();
 
   ValidationResult? _result;
   bool _isValidating = true;
   String? _error;
+  String? _matchName;
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
 
@@ -70,8 +73,20 @@ class _OfflineValidationResultScreenState
         matcheId: widget.matcheId,
       );
 
+      // Load match name
+      String? matchName;
+      try {
+        final events = await _offlineEventService.getEvents();
+        final event = events.firstWhere(
+          (e) => e.id == widget.matcheId,
+          orElse: () => events.first,
+        );
+        matchName = event.name;
+      } catch (_) {}
+
       setState(() {
         _result = result;
+        _matchName = matchName;
         _isValidating = false;
       });
 
@@ -309,7 +324,7 @@ class _OfflineValidationResultScreenState
             ),
             const SizedBox(height: 12),
             _buildDetailRow('Customer', result.customerName ?? 'N/A'),
-            _buildDetailRow('Match ID', data['matche_id']?.toString() ?? 'N/A'),
+            _buildDetailRow('Match', _matchName ?? data['matche_id']?.toString() ?? 'N/A'),
             _buildDetailRow(
               'Ticket Type',
               data['ticket_types_id']?.toString() ?? 'N/A',

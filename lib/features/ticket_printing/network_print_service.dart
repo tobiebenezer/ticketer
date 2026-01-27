@@ -8,11 +8,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NetworkPrintService {
   // Thermal printer paper width in pixels (58mm ≈ 384px, 80mm ≈ 576px at 203 DPI)
   static const double kPaperWidth58mm = 384.0;
   static const double kPaperWidth80mm = 576.0;
+
+  /// Generate custom ticket number format: TKA-{userId}-{shortId}
+  Future<String> _getTicketNumber(int? ticketId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id') ?? 0;
+
+      // Use ticketId or generate a short ID from timestamp
+      final shortId =
+          ticketId?.toString() ??
+          DateTime.now().millisecondsSinceEpoch.toString().substring(7);
+
+      return 'TKA-$userId-$shortId';
+    } catch (e) {
+      // Fallback to simple format if error
+      return 'TKA-${ticketId ?? 0}';
+    }
+  }
 
   Future<bool> printMultipleTickets({
     required String ip,
@@ -34,12 +53,15 @@ class NetworkPrintService {
   }) async {
     final profile = await CapabilityProfile.load();
     final printer = NetworkPrinter(paperSize, profile);
+    print('Connecting to printer at $ip:$port...');
     final res = await printer.connect(
       ip,
       port: port,
-      timeout: const Duration(seconds: 2),
+      timeout: const Duration(seconds: 5),
     );
+    print('Printer connection result: $res');
     if (res != PosPrintResult.success) {
+      print('Failed to connect to printer: $res');
       return false;
     }
 
@@ -92,7 +114,7 @@ class NetworkPrintService {
 
         printer.feed(1);
         printer.cut();
-        
+
         // Delay between tickets to prevent printer buffer overflow
         // This gives the printer time to process and print each ticket
         if (i < numberOfTickets - 1) {
@@ -188,7 +210,6 @@ class NetworkPrintService {
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     final isWide = paperWidthPx > 400;
-    final qrSize = isWide ? 200.0 : 160.0;
 
     return Container(
       width: paperWidthPx,
@@ -482,26 +503,25 @@ class NetworkPrintService {
 
             SizedBox(height: isWide ? 10 : 8),
 
-            // QR Code Section
+            // QR Code and Data Matrix Section - Side by Side
             Padding(
               padding: EdgeInsets.symmetric(horizontal: isWide ? 16 : 10),
               child: Column(
                 children: [
-                  // QR Code - Large & Centered
+                  // QR Code
                   Container(
-                    padding: EdgeInsets.all(isWide ? 10 : 8),
+                    padding: EdgeInsets.all(isWide ? 8 : 6),
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.black, width: 3),
+                      border: Border.all(color: Colors.black, width: 2),
                     ),
                     child: QrImageView(
                       data: validationUrl,
                       version: QrVersions.auto,
-                      size: qrSize,
+                      size: isWide ? 160 : 130,
                       padding: EdgeInsets.zero,
                       backgroundColor: Colors.white,
                     ),
                   ),
-
                   SizedBox(height: isWide ? 10 : 8),
 
                   Text(

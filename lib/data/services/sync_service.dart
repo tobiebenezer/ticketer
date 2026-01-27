@@ -202,10 +202,15 @@ class SyncService {
       print(
         'First ticket sample: ${ticketsPayload.isNotEmpty ? ticketsPayload.first : "none"}',
       );
+      print('ticketsPayload: $ticketsPayload');
 
       final result = await _api.syncTickets(ticketsPayload);
 
       print('Sync result: $result');
+      print('Accepted: ${result.accepted}');
+      print('Rejected: ${result.rejected}');
+      print('Accepted count: ${result.acceptedCount}');
+      print('Rejected count: ${result.rejectedCount}');
 
       // Mark accepted tickets as synced
       for (final tuid in result.accepted) {
@@ -218,6 +223,7 @@ class SyncService {
         rejectedCount: result.rejectedCount,
       );
     } catch (e) {
+      print('Ticket sync error: $e');
       return _PartialSyncResult(
         success: false,
         message: 'Ticket sync error: $e',
@@ -235,10 +241,21 @@ class SyncService {
 
       // Transform to API format
       final validationsPayload = unsyncedValidations.map((validation) {
+        // Parse metadata from JSON string to object
+        dynamic metadata;
+        final metadataStr = validation['metadata'];
+        if (metadataStr != null && metadataStr is String && metadataStr.isNotEmpty) {
+          try {
+            metadata = jsonDecode(metadataStr);
+          } catch (_) {
+            metadata = null;
+          }
+        }
+        
         return {
           'ticket_id': validation['ticket_id'],
           'validated_at': validation['validated_at'],
-          'metadata': validation['metadata'],
+          'metadata': metadata,
         };
       }).toList();
 
@@ -310,6 +327,8 @@ class SyncService {
         bloomFilter: bloomFilterBytes,
         snapshotVersion: bootstrap.snapshotVersion,
         rules: bootstrap.rules,
+        trustedDeviceKeys: bootstrap.trustedDeviceKeys,
+        revokedDevices: bootstrap.revokedDevices,
       );
 
       return true;

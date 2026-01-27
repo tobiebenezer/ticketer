@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:myapp/core/services/crypto_service.dart';
+import 'package:myapp/core/services/device_crypto_service.dart';
 import 'package:myapp/data/local/database_helper.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,16 +16,25 @@ import 'package:uuid/uuid.dart';
 class OfflineValidationService {
   final DatabaseHelper _db;
   final CryptoService _crypto;
+  final DeviceCryptoService _deviceCrypto;
   final _uuid = const Uuid();
 
-  OfflineValidationService({DatabaseHelper? db, CryptoService? crypto})
-    : _db = db ?? DatabaseHelper(),
-      _crypto = crypto ?? CryptoService();
+  OfflineValidationService({
+    DatabaseHelper? db,
+    CryptoService? crypto,
+    DeviceCryptoService? deviceCrypto,
+  }) : _db = db ?? DatabaseHelper(),
+       _crypto = crypto ?? CryptoService(),
+       _deviceCrypto = deviceCrypto ?? DeviceCryptoService();
 
   /// Validate a ticket from QR code content.
   ///
   /// This is the main offline validation entry point.
   /// Target response time: <300ms
+  ///
+  /// Supports multiple QR formats:
+  /// - Crypto JSON: Full signature verification
+  /// - URL/Plain: Requires local ticket record or online verification
   Future<ValidationResult> validateTicket({
     required String qrContent,
     required int matcheId,
@@ -32,64 +42,133 @@ class OfflineValidationService {
     final stopwatch = Stopwatch()..start();
 
     try {
-      // 1. Get cached event public key
+      // 1. Get cached event data (optional - we can still validate without it)
       final eventCache = await _db.getEventCache(matcheId);
-      if (eventCache == null) {
-        return ValidationResult.error(
-          'Event not cached. Please sync first.',
-          ValidationStatus.eventNotCached,
-        );
+      final publicKey = eventCache?['event_public_key'] as String?;
+
+      // 2. Get this device's public key for same-device validation
+      final deviceKeys = await _deviceCrypto.ensureKeyPair();
+      final thisDevicePublicKey = deviceKeys.publicKeyBase64;
+
+      // 3. Build trusted device keys map (include this device)
+      Map<String, String> trustedDevicePublicKeys = {};
+      try {
+        final raw = eventCache?['trusted_device_keys'] as String?;
+        if (raw != null && raw.isNotEmpty) {
+          final decoded = jsonDecode(raw) as List<dynamic>;
+          trustedDevicePublicKeys = <String, String>{
+            for (final item in decoded)
+              if (item is Map)
+                (item['device_uid']?.toString() ?? ''):
+                    (item['public_key']?.toString() ?? ''),
+          }..removeWhere((k, v) => k.isEmpty || v.isEmpty);
+        }
+      } catch (_) {}
+
+      Set<String>? revokedDeviceUids;
+      try {
+        final raw = eventCache?['revoked_devices'] as String?;
+        if (raw != null && raw.isNotEmpty) {
+          final decoded = jsonDecode(raw) as List<dynamic>;
+          revokedDeviceUids = decoded.map((e) => e.toString()).toSet();
+        }
+      } catch (_) {}
+
+      // 4. Try to parse and extract ticket data from QR
+      String? ticketId;
+      Map<String, dynamic>? ticketData;
+      bool signatureValid = false;
+      int? ticketMatcheId;
+
+      // Try parsing as crypto JSON first
+      try {
+        final qrData = jsonDecode(qrContent) as Map<String, dynamic>;
+        final payload = qrData['payload'] as String?;
+        final signature = qrData['signature'] as String?;
+
+        if (payload != null && signature != null) {
+          ticketData = jsonDecode(payload) as Map<String, dynamic>;
+          ticketId = ticketData['tuid'] as String?;
+          ticketMatcheId = ticketData['matche_id'] as int?;
+
+          final issuerType = ticketData['issuer_type'] as String?;
+          final issuerDeviceUid = ticketData['issuer_device_uid'] as String?;
+
+          // Check if device is revoked
+          if (issuerDeviceUid != null &&
+              revokedDeviceUids != null &&
+              revokedDeviceUids.contains(issuerDeviceUid)) {
+            return ValidationResult.invalid('Issuer device has been revoked');
+          }
+
+          // Try to verify signature with appropriate key
+          String? verificationKey;
+
+          if (issuerType == 'device' && issuerDeviceUid != null) {
+            // Device-issued ticket - try device's public key
+            verificationKey = trustedDevicePublicKeys[issuerDeviceUid];
+
+            // If not in trusted list, check if it matches THIS device's key
+            if (verificationKey == null) {
+              // Try verifying with this device's public key (same-device validation)
+              signatureValid = await _crypto.verifySignature(
+                payload: payload,
+                signatureBase64: signature,
+                publicKeyBase64: thisDevicePublicKey,
+              );
+            }
+          }
+
+          // If we have a verification key from trusted list, use it
+          if (!signatureValid && verificationKey != null) {
+            signatureValid = await _crypto.verifySignature(
+              payload: payload,
+              signatureBase64: signature,
+              publicKeyBase64: verificationKey,
+            );
+          }
+
+          // Try event public key as fallback (server-issued tickets)
+          if (!signatureValid && publicKey != null && publicKey.isNotEmpty) {
+            signatureValid = await _crypto.verifySignature(
+              payload: payload,
+              signatureBase64: signature,
+              publicKeyBase64: publicKey,
+            );
+          }
+        }
+      } catch (_) {
+        // Not crypto JSON - try URL/plain format
       }
 
-      final publicKey = eventCache['event_public_key'] as String?;
-      if (publicKey == null || publicKey.isEmpty) {
-        return ValidationResult.error(
-          'Event public key not available.',
-          ValidationStatus.invalidConfig,
-        );
-      }
-
-      // 2. Parse and verify QR code
-      final qrResult = await _crypto.verifyQrCode(
-        qrContent: qrContent,
-        eventPublicKey: publicKey,
-      );
-
-      if (!qrResult.isValid) {
-        return ValidationResult.invalid(
-          qrResult.errorMessage ?? 'Invalid ticket',
-        );
-      }
-
-      final ticketId = qrResult.ticketId;
+      // If not crypto format, try URL/plain format
       if (ticketId == null) {
-        return ValidationResult.invalid('Ticket ID not found in QR code');
-      }
+        // Try URL format
+        final urlPatterns = [
+          RegExp(r'/ticket/validate/([a-f0-9\-]{36})', caseSensitive: false),
+          RegExp(r'/validate/([a-f0-9\-]{36})', caseSensitive: false),
+          RegExp(r'^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$', caseSensitive: false),
+        ];
 
-      // 3. Handle pending sync tickets (sold offline on this device)
-      if (qrResult.isPendingSync) {
-        // Only trust if we have a local record of this ticket
-        final localTicket = await _db.getTicketById(ticketId);
-        if (localTicket == null) {
-          return ValidationResult.invalid(
-            'Unsigned ticket from another device. Please sync both devices.',
-            details: {'pending_sync': true},
-          );
+        for (final pattern in urlPatterns) {
+          final match = pattern.firstMatch(qrContent);
+          if (match != null) {
+            ticketId = match.group(1) ?? match.group(0);
+            break;
+          }
+        }
+
+        // Plain reference fallback
+        if (ticketId == null && qrContent.length >= 8) {
+          ticketId = qrContent.trim();
         }
       }
 
-      // 3. Check if ticket matches the event
-      if (qrResult.matcheId != matcheId) {
-        return ValidationResult.invalid(
-          'Ticket is for a different event',
-          details: {
-            'ticket_event': qrResult.matcheId,
-            'current_event': matcheId,
-          },
-        );
+      if (ticketId == null || ticketId.isEmpty) {
+        return ValidationResult.invalid('Could not extract ticket ID from QR code');
       }
 
-      // 4. Check local validated cache first (fastest - this device's validations)
+      // 5. Check if already validated on THIS device
       final isValidatedLocally = await _db.isTicketValidated(ticketId);
       if (isValidatedLocally) {
         final previousTime = await _db.getValidationTime(ticketId);
@@ -99,37 +178,67 @@ class OfflineValidationService {
         );
       }
 
-      // 5. Check Bloom filter (cross-device validations)
-      final bloomFilterBytes = eventCache['bloom_filter'] as List<int>?;
-
-      if (bloomFilterBytes != null && bloomFilterBytes.isNotEmpty) {
-        // Check if ticket was validated on another device
-        final validatedElsewhere = _checkBloomFilter(
-          ticketId,
-          bloomFilterBytes,
-        );
-
-        if (validatedElsewhere) {
-          // Bloom filter indicates this ticket was validated on another device
-          // Deny entry to prevent duplicate access
-          return ValidationResult.alreadyUsed(
-            ticketId: ticketId,
-            previousValidationTime:
-                null, // Don't know exact time from other device
-            details: {'validated_on_other_device': true},
+      // 6. For crypto tickets with valid signature - trust it even if not in local DB
+      if (ticketData != null && signatureValid) {
+        // Signature is valid - ticket is authentic, proceed with validation
+        // No need to check local database
+      } else if (ticketData != null && !signatureValid) {
+        // Signature verification failed - check if we have local record as fallback
+        final localTicket = await _db.getTicketById(ticketId);
+        if (localTicket != null) {
+          // We have a local record - trust it (same device created it)
+          ticketData = localTicket;
+          signatureValid = true;
+        } else {
+          return ValidationResult.invalid(
+            'Invalid signature. Ticket may be from an unsynced device.',
           );
         }
       }
 
-      // 6. Accept entry - add to cache and validation log
-      await _acceptEntry(ticketId, qrResult.ticketData!);
+      // 7. For non-crypto tickets (URL/plain format), check local database
+      if (ticketData == null) {
+        final localTicket = await _db.getTicketById(ticketId);
+        if (localTicket != null) {
+          ticketData = localTicket;
+          ticketMatcheId = localTicket['matche_id'] as int?;
+        } else {
+          // No local record and no crypto signature - cannot validate offline
+          return ValidationResult.error(
+            'Non-crypto ticket not found locally. Cannot validate offline.',
+            ValidationStatus.systemError,
+            details: {'requires_online': true, 'ticket_id': ticketId},
+          );
+        }
+      }
+
+      // 8. Verify ticket is for the correct event
+      if (ticketMatcheId != null && ticketMatcheId != matcheId) {
+        return ValidationResult.invalid(
+          'Ticket is for a different event',
+          details: {'ticket_event': ticketMatcheId, 'current_event': matcheId},
+        );
+      }
+
+      // 9. Bloom filter check (informational only - don't block validation)
+      bool possiblyValidatedElsewhere = false;
+      final bloomFilterBytes = eventCache?['bloom_filter'] as List<int>?;
+      if (bloomFilterBytes != null && bloomFilterBytes.isNotEmpty) {
+        possiblyValidatedElsewhere = _checkBloomFilter(ticketId, bloomFilterBytes);
+      }
+
+      // 10. Accept entry - save validation record for syncing
+      await _acceptEntry(ticketId, ticketData);
 
       stopwatch.stop();
 
       return ValidationResult.valid(
         ticketId: ticketId,
-        ticketData: qrResult.ticketData!,
+        ticketData: ticketData,
         validationTimeMs: stopwatch.elapsedMilliseconds,
+        details: possiblyValidatedElsewhere
+            ? {'warning': 'May have been validated on another device'}
+            : null,
       );
     } catch (e) {
       stopwatch.stop();
@@ -286,6 +395,7 @@ class ValidationResult {
     required String ticketId,
     required Map<String, dynamic> ticketData,
     int? validationTimeMs,
+    Map<String, dynamic>? details,
   }) {
     return ValidationResult._(
       status: ValidationStatus.valid,
@@ -294,6 +404,7 @@ class ValidationResult {
       ticketId: ticketId,
       ticketData: ticketData,
       validationTimeMs: validationTimeMs,
+      details: details,
     );
   }
 
@@ -324,11 +435,16 @@ class ValidationResult {
     );
   }
 
-  factory ValidationResult.error(String message, ValidationStatus status) {
+  factory ValidationResult.error(
+    String message,
+    ValidationStatus status, {
+    Map<String, dynamic>? details,
+  }) {
     return ValidationResult._(
       status: status,
       isSuccess: false,
       message: message,
+      details: details,
     );
   }
 

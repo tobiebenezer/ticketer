@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -29,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 5, // Bumped for match-specific ticket type caching
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -84,6 +85,8 @@ class DatabaseHelper {
         bloom_filter BLOB,
         snapshot_version INTEGER DEFAULT 0,
         rules TEXT,
+        trusted_device_keys TEXT,
+        revoked_devices TEXT,
         cached_at TEXT NOT NULL
       )
     ''');
@@ -211,6 +214,15 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 6) {
+      await db.execute(
+        'ALTER TABLE event_cache ADD COLUMN trusted_device_keys TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE event_cache ADD COLUMN revoked_devices TEXT',
+      );
+    }
   }
 
   // ==================== LOCAL TICKETS CRUD ====================
@@ -275,6 +287,77 @@ class DatabaseHelper {
     return await db.query('local_tickets', orderBy: 'created_at DESC');
   }
 
+  /// Get total count of local tickets
+  Future<int> getLocalTicketCount() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM local_tickets',
+    );
+    return (result.first['count'] as int?) ?? 0;
+  }
+
+  /// Batch insert downloaded tickets for offline validation
+  /// 
+  /// This stores tickets from other devices so they can be validated offline.
+  /// Clears old downloaded tickets for the event before inserting new ones.
+  Future<int> insertDownloadedTickets({
+    required int matcheId,
+    required List<Map<String, String>> tickets,
+  }) async {
+    final db = await database;
+    
+    // Clear old downloaded tickets for this event
+    await db.delete(
+      'local_tickets',
+      where: 'matche_id = ? AND status = ?',
+      whereArgs: [matcheId, 'downloaded'],
+    );
+    
+    int insertedCount = 0;
+
+    for (final ticket in tickets) {
+      try {
+        // Insert as a downloaded ticket (no payload/signature, just reference)
+        await db.insert('local_tickets', {
+          'ticket_id': ticket['ticket_id'],
+          'matche_id': matcheId,
+          'ticket_types_id': 0, // Unknown ticket type
+          'customer_name': null,
+          'amount': 0.0,
+          'payload': '', // No payload for downloaded tickets
+          'signature': '', // No signature for downloaded tickets
+          'status': 'downloaded', // Mark as downloaded for tracking
+          'created_at': DateTime.now().toIso8601String(),
+          'synced_at': DateTime.now().toIso8601String(), // Already synced
+        });
+        insertedCount++;
+      } catch (e) {
+        // Skip duplicates or errors
+        continue;
+      }
+    }
+
+    return insertedCount;
+  }
+
+  /// Get the sequential row number for a ticket (1-based, ordered by creation)
+  Future<int?> getTicketSequentialId(String ticketId) async {
+    final db = await database;
+    // Get all ticket IDs ordered by creation, then find position
+    final result = await db.rawQuery('''
+      SELECT ticket_id, 
+             ROW_NUMBER() OVER (ORDER BY created_at ASC) as seq_id
+      FROM local_tickets
+    ''');
+
+    for (final row in result) {
+      if (row['ticket_id'] == ticketId) {
+        return row['seq_id'] as int?;
+      }
+    }
+    return null;
+  }
+
   // ==================== LOCAL VALIDATIONS CRUD ====================
 
   /// Insert a new validation record
@@ -291,7 +374,7 @@ class DatabaseHelper {
       'validated_at': validatedAt.toIso8601String(),
       'synced': 0,
       'conflict': 0,
-      'metadata': metadata != null ? metadata.toString() : null,
+      'metadata': metadata != null ? jsonEncode(metadata) : null,
     });
   }
 
@@ -374,6 +457,8 @@ class DatabaseHelper {
     List<int>? bloomFilter,
     required int snapshotVersion,
     Map<String, dynamic>? rules,
+    List<Map<String, dynamic>>? trustedDeviceKeys,
+    List<String>? revokedDevices,
   }) async {
     final db = await database;
     await db.insert('event_cache', {
@@ -384,6 +469,9 @@ class DatabaseHelper {
       'bloom_filter': bloomFilter,
       'snapshot_version': snapshotVersion,
       'rules': rules?.toString(),
+      'trusted_device_keys':
+          trustedDeviceKeys == null ? null : jsonEncode(trustedDeviceKeys),
+      'revoked_devices': revokedDevices == null ? null : jsonEncode(revokedDevices),
       'cached_at': DateTime.now().toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }

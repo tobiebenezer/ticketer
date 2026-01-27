@@ -91,6 +91,7 @@ class _ReprintScreenState extends State<ReprintScreen> {
       );
       final eventName = await _getEventName(ticket['matche_id']);
 
+      String? savedPdfPath;
       final success = await _printService.printTicket(
         eventName: eventName,
         ticketType: ticketTypeName,
@@ -104,6 +105,9 @@ class _ReprintScreenState extends State<ReprintScreen> {
         ticketId: int.tryParse(ticket['ticket_id']?.toString() ?? '0'),
         matchId: ticket['matche_id'],
         ticketTypeId: ticket['ticket_types_id'],
+        onSavedPdf: (path) {
+          savedPdfPath = path;
+        },
       );
 
       if (!mounted) return;
@@ -111,7 +115,11 @@ class _ReprintScreenState extends State<ReprintScreen> {
       setState(() => _isPrinting = false);
 
       if (success) {
-        _showSuccess('Ticket reprinted successfully');
+        if (savedPdfPath != null) {
+          _showSuccess('No printer found. Ticket saved to: $savedPdfPath');
+        } else {
+          _showSuccess('Ticket reprinted successfully');
+        }
       } else {
         _showError('Failed to reprint ticket');
       }
@@ -163,6 +171,7 @@ class _ReprintScreenState extends State<ReprintScreen> {
         );
         final eventName = await _getEventName(ticket['matche_id']);
 
+        String? savedPdfPath;
         final success = await _printService.printTicket(
           eventName: eventName,
           ticketType: ticketTypeName,
@@ -176,10 +185,21 @@ class _ReprintScreenState extends State<ReprintScreen> {
           ticketId: int.tryParse(ticket['ticket_id']?.toString() ?? '0'),
           matchId: ticket['matche_id'],
           ticketTypeId: ticket['ticket_types_id'],
+          onSavedPdf: (path) {
+            savedPdfPath = path;
+          },
         );
 
         if (success) {
           successCount++;
+          if (savedPdfPath != null && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Ticket saved to: $savedPdfPath'),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
         } else {
           failCount++;
         }
