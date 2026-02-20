@@ -10,6 +10,7 @@ import 'package:sqflite/sqflite.dart';
 /// - local_validations: Offline validation logs pending sync
 /// - validated_ticket_cache: Local cache of validated ticket IDs
 /// - event_cache: Cached event data for offline validation
+/// - print_jobs: Persistent print queue and status history
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
@@ -30,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -123,6 +124,8 @@ class DatabaseHelper {
       )
     ''');
 
+    await _createPrintJobsTable(db);
+
     // Create indexes for common queries
     await db.execute(
       'CREATE INDEX idx_local_tickets_status ON local_tickets(status)',
@@ -133,6 +136,32 @@ class DatabaseHelper {
     await db.execute(
       'CREATE INDEX idx_event_cache_matche ON event_cache(matche_id)',
     );
+    await db.execute(
+      'CREATE INDEX idx_print_jobs_status ON print_jobs(status)',
+    );
+  }
+
+  Future<void> _createPrintJobsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS print_jobs (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL,
+        customer_name TEXT,
+        ticket_number INTEGER NOT NULL,
+        total_tickets INTEGER NOT NULL,
+        purchase_batch_id TEXT,
+        purchase_index INTEGER,
+        purchase_quantity INTEGER,
+        display_ticket_id INTEGER,
+        status TEXT NOT NULL,
+        attempt_count INTEGER DEFAULT 0,
+        last_error TEXT,
+        pdf_path TEXT,
+        selected INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -223,6 +252,25 @@ class DatabaseHelper {
         'ALTER TABLE event_cache ADD COLUMN revoked_devices TEXT',
       );
     }
+
+    if (oldVersion < 7) {
+      await _createPrintJobsTable(db);
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status)',
+      );
+    }
+
+    if (oldVersion < 8) {
+      await db.execute(
+        'ALTER TABLE print_jobs ADD COLUMN purchase_batch_id TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE print_jobs ADD COLUMN purchase_index INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE print_jobs ADD COLUMN purchase_quantity INTEGER',
+      );
+    }
   }
 
   // ==================== LOCAL TICKETS CRUD ====================
@@ -252,10 +300,87 @@ class DatabaseHelper {
     });
   }
 
-  /// Get all unsynced tickets
+  /// Get all unsynced tickets (excludes downloaded tickets which don't need syncing)
   Future<List<Map<String, dynamic>>> getUnsyncedTickets() async {
     final db = await database;
-    return await db.query('local_tickets', where: 'synced_at IS NULL');
+    return await db.query(
+      'local_tickets',
+      where: 'synced_at IS NULL AND status != ?',
+      whereArgs: ['downloaded'],
+    );
+  }
+
+  /// Get unsynced tickets that are ready for sync.
+  ///
+  /// A ticket is ready when its latest print job status is `sent`.
+  Future<List<Map<String, dynamic>>> getUnsyncedTicketsReadyForSync() async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT lt.*
+      FROM local_tickets lt
+      WHERE lt.synced_at IS NULL
+        AND lt.status != 'downloaded'
+        AND EXISTS (
+          SELECT 1
+          FROM print_jobs pj
+          WHERE pj.ticket_id = lt.ticket_id
+            AND pj.updated_at = (
+              SELECT MAX(pj2.updated_at)
+              FROM print_jobs pj2
+              WHERE pj2.ticket_id = lt.ticket_id
+            )
+            AND pj.status = 'sent'
+        )
+      ORDER BY lt.created_at ASC
+    ''');
+  }
+
+  /// Count unsynced tickets that are ready for sync (latest print status = sent).
+  Future<int> getUnsyncedReadyForSyncCount() async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS count
+      FROM local_tickets lt
+      WHERE lt.synced_at IS NULL
+        AND lt.status != 'downloaded'
+        AND EXISTS (
+          SELECT 1
+          FROM print_jobs pj
+          WHERE pj.ticket_id = lt.ticket_id
+            AND pj.updated_at = (
+              SELECT MAX(pj2.updated_at)
+              FROM print_jobs pj2
+              WHERE pj2.ticket_id = lt.ticket_id
+            )
+            AND pj.status = 'sent'
+        )
+    ''');
+    return (rows.first['count'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Count unsynced tickets blocked from sync by print status.
+  ///
+  /// Blocked = unsynced ticket where latest print job is not sent OR no print job exists.
+  Future<int> getUnsyncedBlockedByPrintCount() async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS count
+      FROM local_tickets lt
+      WHERE lt.synced_at IS NULL
+        AND lt.status != 'downloaded'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM print_jobs pj
+          WHERE pj.ticket_id = lt.ticket_id
+            AND pj.updated_at = (
+              SELECT MAX(pj2.updated_at)
+              FROM print_jobs pj2
+              WHERE pj2.ticket_id = lt.ticket_id
+            )
+            AND pj.status = 'sent'
+        )
+    ''');
+    return (rows.first['count'] as num?)?.toInt() ?? 0;
   }
 
   /// Mark ticket as synced
@@ -297,7 +422,7 @@ class DatabaseHelper {
   }
 
   /// Batch insert downloaded tickets for offline validation
-  /// 
+  ///
   /// This stores tickets from other devices so they can be validated offline.
   /// Clears old downloaded tickets for the event before inserting new ones.
   Future<int> insertDownloadedTickets({
@@ -305,14 +430,14 @@ class DatabaseHelper {
     required List<Map<String, String>> tickets,
   }) async {
     final db = await database;
-    
+
     // Clear old downloaded tickets for this event
     await db.delete(
       'local_tickets',
       where: 'matche_id = ? AND status = ?',
       whereArgs: [matcheId, 'downloaded'],
     );
-    
+
     int insertedCount = 0;
 
     for (final ticket in tickets) {
@@ -469,9 +594,12 @@ class DatabaseHelper {
       'bloom_filter': bloomFilter,
       'snapshot_version': snapshotVersion,
       'rules': rules?.toString(),
-      'trusted_device_keys':
-          trustedDeviceKeys == null ? null : jsonEncode(trustedDeviceKeys),
-      'revoked_devices': revokedDevices == null ? null : jsonEncode(revokedDevices),
+      'trusted_device_keys': trustedDeviceKeys == null
+          ? null
+          : jsonEncode(trustedDeviceKeys),
+      'revoked_devices': revokedDevices == null
+          ? null
+          : jsonEncode(revokedDevices),
       'cached_at': DateTime.now().toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
@@ -701,5 +829,62 @@ class DatabaseHelper {
   Future<void> clearCachedTicketTypes() async {
     final db = await database;
     await db.delete('cached_ticket_types');
+  }
+
+  // ==================== PRINT JOBS ====================
+
+  /// Upsert print job entry
+  Future<void> upsertPrintJob(Map<String, dynamic> job) async {
+    final db = await database;
+    await db.insert(
+      'print_jobs',
+      job,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Upsert multiple print jobs in a single transaction
+  Future<void> upsertPrintJobs(List<Map<String, dynamic>> jobs) async {
+    if (jobs.isEmpty) return;
+    final db = await database;
+    final batch = db.batch();
+    for (final job in jobs) {
+      batch.insert(
+        'print_jobs',
+        job,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all print jobs ordered by creation time
+  Future<List<Map<String, dynamic>>> getPrintJobs() async {
+    final db = await database;
+    return await db.query('print_jobs', orderBy: 'created_at ASC');
+  }
+
+  /// Delete a single print job
+  Future<void> deletePrintJob(String id) async {
+    final db = await database;
+    await db.delete('print_jobs', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Delete print jobs by statuses
+  Future<void> deletePrintJobsByStatuses(List<String> statuses) async {
+    if (statuses.isEmpty) return;
+    final db = await database;
+    final placeholders = List.filled(statuses.length, '?').join(', ');
+    await db.delete(
+      'print_jobs',
+      where: 'status IN ($placeholders)',
+      whereArgs: statuses,
+    );
+  }
+
+  /// Clear print job queue/history
+  Future<void> clearPrintJobs() async {
+    final db = await database;
+    await db.delete('print_jobs');
   }
 }

@@ -9,6 +9,8 @@ class AppSettingsService {
   static const String _kAutoSyncEnabled = 'auto_sync_enabled';
   static const String _kFastCheckoutMode = 'fast_checkout_mode';
   static const String _kAutoPrintEnabled = 'auto_print_enabled';
+  static const String _kValidationPopupTimeoutSeconds = 'validation_popup_timeout_seconds';
+  static const String _kPrinterDelayMs = 'printer_delay_ms';
 
   /// Get whether to prefer offline sales over API calls
   /// Default: true (offline-first)
@@ -60,8 +62,33 @@ class AppSettingsService {
     await prefs.setBool(_kAutoPrintEnabled, enabled);
   }
 
+  /// Get validation popup timeout in seconds
+  /// Default: 5 seconds
+  Future<int> getValidationPopupTimeoutSeconds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kValidationPopupTimeoutSeconds) ?? 5;
+  }
+
+  /// Set validation popup timeout in seconds
+  Future<void> setValidationPopupTimeoutSeconds(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kValidationPopupTimeoutSeconds, value);
+  }
+
+  /// Get printer delay between tickets in milliseconds
+  /// Default: 1500ms (1.5 seconds)
+  Future<int> getPrinterDelayMs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kPrinterDelayMs) ?? 1500;
+  }
+
+  /// Set printer delay between tickets in milliseconds
+  Future<void> setPrinterDelayMs(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPrinterDelayMs, value);
+  }
+
   /// Get whether fast checkout mode is enabled
-  /// Default: false (normal mode)
   Future<bool> getFastCheckoutMode() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_kFastCheckoutMode) ?? false;
@@ -74,13 +101,15 @@ class AppSettingsService {
   }
 
   /// Get all settings as a map
-  Future<Map<String, bool>> getAllSettings() async {
+  Future<Map<String, dynamic>> getAllSettings() async {
     return {
       'prefer_offline_sales': await getPreferOfflineSales(),
       'prefer_offline_validation': await getPreferOfflineValidation(),
       'auto_sync_enabled': await getAutoSyncEnabled(),
       'auto_print_enabled': await getAutoPrintEnabled(),
       'fast_checkout_mode': await getFastCheckoutMode(),
+      'validation_popup_timeout_seconds': await getValidationPopupTimeoutSeconds(),
+      'printer_delay_ms': await getPrinterDelayMs(),
     };
   }
 
@@ -91,5 +120,7 @@ class AppSettingsService {
     await setAutoSyncEnabled(true);
     await setAutoPrintEnabled(true);
     await setFastCheckoutMode(false);
+    await setValidationPopupTimeoutSeconds(5);
+    await setPrinterDelayMs(1500);
   }
 }

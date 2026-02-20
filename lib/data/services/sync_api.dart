@@ -45,6 +45,7 @@ class SyncApi {
     List<Map<String, dynamic>> validations,
   ) async {
     try {
+      print('Syncing validations payload: $validations');
       final response = await _dio.post(
         '/sync/validations',
         data: {'validations': validations},
@@ -57,6 +58,11 @@ class SyncApi {
 
       throw Exception('Sync failed: ${response.statusCode}');
     } on DioException catch (e) {
+      // Log the full error response for debugging
+      if (e.response?.statusCode == 422) {
+        print('Validation sync error 422: ${e.response?.data}');
+      }
+      print('Validation sync error: ${e.response?.data}');
       throw Exception('Sync failed: ${e.message}');
     }
   }

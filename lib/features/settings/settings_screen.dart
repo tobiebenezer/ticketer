@@ -27,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
   Map<String, dynamic>? _user;
   final TextEditingController _ipController = TextEditingController();
+  final TextEditingController _printerDelayController = TextEditingController();
   final AppSettingsService _appSettings = AppSettingsService();
 
   // Offline mode settings
@@ -35,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoSync = true;
   bool _fastCheckoutMode = false;
   bool _autoPrint = true;
+  int _validationPopupTimeoutSeconds = 5;
 
   @override
   void initState() {
@@ -63,6 +65,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoSync = await _appSettings.getAutoSyncEnabled();
     final fastCheckoutMode = await _appSettings.getFastCheckoutMode();
     final autoPrint = await _appSettings.getAutoPrintEnabled();
+    final validationPopupTimeout = await _appSettings.getValidationPopupTimeoutSeconds();
+    final printerDelay = await _appSettings.getPrinterDelayMs();
+
+    _printerDelayController.text = printerDelay.toString();
 
     if (!mounted) return;
     setState(() {
@@ -71,6 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoSync = autoSync;
       _fastCheckoutMode = fastCheckoutMode;
       _autoPrint = autoPrint;
+      _validationPopupTimeoutSeconds = validationPopupTimeout;
     });
 
     await _loadBt();
@@ -152,6 +159,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         }
         break;
+      case 'validation_popup_timeout':
+        await _appSettings.setValidationPopupTimeoutSeconds(value as int);
+        setState(() => _validationPopupTimeoutSeconds = value as int);
+        break;
     }
   }
 
@@ -228,6 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _ipController.dispose();
+    _printerDelayController.dispose();
     super.dispose();
   }
 
@@ -294,6 +306,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
             contentPadding: EdgeInsets.zero,
             onChanged: (value) => _updateOfflineSetting('auto_print', value),
           ),
+          const SizedBox(height: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Validation Popup Timeout',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Auto-dismiss after $_validationPopupTimeoutSeconds seconds',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey,
+                ),
+              ),
+              Slider(
+                value: _validationPopupTimeoutSeconds.toDouble(),
+                min: 1,
+                max: 30,
+                divisions: 29,
+                label: '$_validationPopupTimeoutSeconds s',
+                onChanged: (value) {
+                  setState(() => _validationPopupTimeoutSeconds = value.round());
+                },
+                onChangeEnd: (value) async {
+                  await _appSettings.setValidationPopupTimeoutSeconds(value.round());
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Printer Delay Between Tickets',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Delay in milliseconds between each ticket print',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _printerDelayController,
+                      decoration: const InputDecoration(
+                        labelText: 'Delay (ms)',
+                        hintText: '1500',
+                        border: OutlineInputBorder(),
+                        suffixText: 'ms',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      onChanged: (value) async {
+                        final delay = int.tryParse(value) ?? 1500;
+                        await _appSettings.setPrinterDelayMs(delay);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
           const Divider(height: 32),
 
           // Tools Section
@@ -321,7 +405,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: RadioListTile<String>(
                   value: 'wifi',
                   groupValue: _preferredPath,
-                  onChanged: (v) => setState(() => _preferredPath = v!),
+                  onChanged: (v) async {
+                    setState(() => _preferredPath = v!);
+                    await _save();
+                  },
                   title: const Text('Wi‑Fi (TCP)'),
                 ),
               ),
@@ -329,7 +416,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: RadioListTile<String>(
                   value: 'bluetooth',
                   groupValue: _preferredPath,
-                  onChanged: (v) => setState(() => _preferredPath = v!),
+                  onChanged: (v) async {
+                    setState(() => _preferredPath = v!);
+                    await _save();
+                  },
                   title: const Text('Bluetooth'),
                 ),
               ),
@@ -348,6 +438,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
+                  onChanged: (value) async {
+                    final ip = value.trim();
+                    if (ip.isNotEmpty) {
+                      _wifiIp = ip;
+                      await _save();
+                    }
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -360,12 +457,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     final ok = await _checkPort9100(ip);
                     if (!mounted) return;
                     if (ok) {
-                      setState(() {
-                        _wifiIp = ip;
-                      });
-                      await _save();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Wi‑Fi printer saved')),
+                        const SnackBar(content: Text('Printer reachable')),
                       );
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -375,7 +468,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     }
                   },
-                  child: const Text('Save'),
+                  child: const Text('Test'),
                 ),
               ),
             ],
@@ -403,6 +496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   groupValue: _wifiIp,
                   onChanged: (v) async {
                     setState(() => _wifiIp = v);
+                    _ipController.text = v!;
                     await _save();
                   },
                 ),
@@ -431,16 +525,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           const SizedBox(height: 16),
-          FilledButton(
-            onPressed: () async {
-              await _save();
-              if (!mounted) return;
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('Settings saved')));
-            },
-            child: const Text('Save Settings'),
-          ),
         ],
       ),
     );

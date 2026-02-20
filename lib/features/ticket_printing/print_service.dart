@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:myapp/core/constants/network_constants.dart';
+import 'package:myapp/core/services/app_settings_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:myapp/features/ticket_printing/network_print_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,13 +17,167 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
+enum PrintDispatchStatus { sent, failed, pdfFallback }
+
+class PrintDispatchResult {
+  final PrintDispatchStatus status;
+  final String mode;
+  final String? error;
+  final String? pdfPath;
+
+  const PrintDispatchResult({
+    required this.status,
+    required this.mode,
+    this.error,
+    this.pdfPath,
+  });
+
+  bool get isSent => status == PrintDispatchStatus.sent;
+  bool get isFailed => status == PrintDispatchStatus.failed;
+  bool get isPdfFallback => status == PrintDispatchStatus.pdfFallback;
+}
+
 class PrintService {
   final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
+  final AppSettingsService _settingsService = AppSettingsService();
 
   // Thermal printer paper width in pixels (58mm ≈ 384px)
   static const double kPaperWidthPx = 384.0;
 
   // --- 1. PRINT SINGLE TICKET (Direct Print) ---
+  Future<PrintDispatchResult> printTicketWithResult({
+    required String eventName,
+    required String ticketType,
+    required double price,
+    required int ticketNumber,
+    required int totalTickets,
+    required String ticketCode,
+    required String validationUrl,
+    required String transactionId,
+    String? customerName,
+    String? customerEmail,
+    String? customerPhone,
+    String? venue,
+    int? ticketId,
+    int? matchId,
+    int? ticketTypeId,
+    void Function(String pdfPath)? onSavedPdf,
+  }) async {
+    final mode = await _getPreferredPrintPath();
+    String? savedPdfPath;
+
+    final success = await printTicket(
+      eventName: eventName,
+      ticketType: ticketType,
+      price: price,
+      ticketNumber: ticketNumber,
+      totalTickets: totalTickets,
+      ticketCode: ticketCode,
+      validationUrl: validationUrl,
+      transactionId: transactionId,
+      customerName: customerName,
+      customerEmail: customerEmail,
+      customerPhone: customerPhone,
+      venue: venue,
+      ticketId: ticketId,
+      matchId: matchId,
+      ticketTypeId: ticketTypeId,
+      onSavedPdf: (path) {
+        savedPdfPath = path;
+        if (onSavedPdf != null) {
+          onSavedPdf(path);
+        }
+      },
+    );
+
+    if (!success) {
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.failed,
+        mode: mode,
+        error: 'Failed to send ticket to printer',
+      );
+    }
+
+    if (savedPdfPath != null) {
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.pdfFallback,
+        mode: mode,
+        pdfPath: savedPdfPath,
+      );
+    }
+
+    return PrintDispatchResult(status: PrintDispatchStatus.sent, mode: mode);
+  }
+
+  Future<PrintDispatchResult> printMultipleTicketsWithResult({
+    required String eventName,
+    required String ticketType,
+    required double price,
+    required int numberOfTickets,
+    required List<String> ticketCodes,
+    required String transactionId,
+    String? customerName,
+    String? customerEmail,
+    String? customerPhone,
+    String? deviceAddress,
+    void Function(String pdfPath)? onSavedPdf,
+    int connectTimeoutMs = 1200,
+    String? venue,
+    List<int>? ticketIds,
+    List<int>? matchIds,
+    List<int>? ticketTypeIds,
+  }) async {
+    final mode = await _getPreferredPrintPath();
+    String? savedPdfPath;
+
+    final success = await printMultipleTickets(
+      eventName: eventName,
+      ticketType: ticketType,
+      price: price,
+      numberOfTickets: numberOfTickets,
+      ticketCodes: ticketCodes,
+      transactionId: transactionId,
+      customerName: customerName,
+      customerEmail: customerEmail,
+      customerPhone: customerPhone,
+      deviceAddress: deviceAddress,
+      onSavedPdf: (path) {
+        savedPdfPath = path;
+        if (onSavedPdf != null) {
+          onSavedPdf(path);
+        }
+      },
+      connectTimeoutMs: connectTimeoutMs,
+      venue: venue,
+      ticketIds: ticketIds,
+      matchIds: matchIds,
+      ticketTypeIds: ticketTypeIds,
+    );
+
+    if (!success) {
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.failed,
+        mode: mode,
+        error: 'Failed to send tickets to printer',
+      );
+    }
+
+    if (savedPdfPath != null) {
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.pdfFallback,
+        mode: mode,
+        pdfPath: savedPdfPath,
+      );
+    }
+
+    return PrintDispatchResult(status: PrintDispatchStatus.sent, mode: mode);
+  }
+
+  Future<String> _getPreferredPrintPath() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('kPreferredPrintPath') ?? 'system';
+  }
+
   Future<bool> printTicket({
     required String eventName,
     required String ticketType,
@@ -49,6 +204,8 @@ class PrintService {
       numberOfTickets: 1,
       ticketCodes: [ticketCode],
       transactionId: transactionId,
+      ticketNumbers: [ticketNumber],
+      ticketTotals: [totalTickets],
       customerName: customerName,
       customerEmail: customerEmail,
       customerPhone: customerPhone,
@@ -108,6 +265,8 @@ class PrintService {
     List<int>? ticketIds,
     List<int>? matchIds,
     List<int>? ticketTypeIds,
+    List<int>? ticketNumbers,
+    List<int>? ticketTotals,
   }) async {
     final doc = pw.Document();
     final now = DateTime.now();
@@ -124,6 +283,13 @@ class PrintService {
 
     for (int i = 0; i < numberOfTickets; i++) {
       final code = ticketCodes[i];
+      final displayTicketNumber =
+          ticketNumbers != null && i < ticketNumbers.length
+          ? ticketNumbers[i]
+          : i + 1;
+      final displayTicketTotal = ticketTotals != null && i < ticketTotals.length
+          ? ticketTotals[i]
+          : numberOfTickets;
       final validationUrl =
           '${kBaseUrl.replaceAll('/api', '')}/ticket/validate/$code';
       final ticketIdStr = ticketIds != null && i < ticketIds.length
@@ -310,7 +476,7 @@ class PrintService {
                                   ),
                                 ),
                                 pw.Text(
-                                  '#${i + 1}/$numberOfTickets',
+                                  '#$displayTicketNumber/$displayTicketTotal',
                                   style: pw.TextStyle(
                                     fontSize: 9,
                                     fontWeight: pw.FontWeight.bold,
@@ -321,47 +487,47 @@ class PrintService {
                           ),
                         ],
                       ),
-                      pw.SizedBox(height: 6),
+                      // pw.SizedBox(height: 6),
 
                       // Customer Info
-                      pw.Container(
-                        width: double.infinity,
-                        padding: const pw.EdgeInsets.all(5),
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(
-                            color: PdfColors.black,
-                            width: 0.8,
-                          ),
-                          borderRadius: pw.BorderRadius.circular(2),
-                        ),
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
-                            pw.Text(
-                              'TICKET HOLDER',
-                              style: pw.TextStyle(
-                                fontSize: 6,
-                                fontWeight: pw.FontWeight.bold,
-                                color: PdfColors.grey600,
-                              ),
-                            ),
-                            pw.Text(
-                              (customerName ?? 'GUEST').toUpperCase(),
-                              style: pw.TextStyle(
-                                fontSize: 8,
-                                fontWeight: pw.FontWeight.bold,
-                              ),
-                            ),
-                            if (customerPhone != null &&
-                                customerPhone.isNotEmpty)
-                              pw.Text(
-                                customerPhone,
-                                style: const pw.TextStyle(fontSize: 7),
-                              ),
-                          ],
-                        ),
-                      ),
-                      pw.SizedBox(height: 6),
+                      // pw.Container(
+                      //   width: double.infinity,
+                      //   padding: const pw.EdgeInsets.all(5),
+                      //   decoration: pw.BoxDecoration(
+                      //     border: pw.Border.all(
+                      //       color: PdfColors.black,
+                      //       width: 0.8,
+                      //     ),
+                      //     borderRadius: pw.BorderRadius.circular(2),
+                      //   ),
+                      //   child: pw.Column(
+                      //     crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      //     children: [
+                      //       pw.Text(
+                      //         'TICKET HOLDER',
+                      //         style: pw.TextStyle(
+                      //           fontSize: 6,
+                      //           fontWeight: pw.FontWeight.bold,
+                      //           color: PdfColors.grey600,
+                      //         ),
+                      //       ),
+                      //       pw.Text(
+                      //         (customerName ?? 'GUEST').toUpperCase(),
+                      //         style: pw.TextStyle(
+                      //           fontSize: 8,
+                      //           fontWeight: pw.FontWeight.bold,
+                      //         ),
+                      //       ),
+                      //       if (customerPhone != null &&
+                      //           customerPhone.isNotEmpty)
+                      //         pw.Text(
+                      //           customerPhone,
+                      //           style: const pw.TextStyle(fontSize: 7),
+                      //         ),
+                      //     ],
+                      //   ),
+                      // ),
+                      // pw.SizedBox(height: 6),
 
                       // Perforation line
                       _buildDashedLine(),
@@ -379,8 +545,8 @@ class PrintService {
                         child: pw.BarcodeWidget(
                           barcode: pw.Barcode.qrCode(),
                           data: validationUrl,
-                          width: 70,
-                          height: 70,
+                          width: 100,
+                          height: 100,
                           drawText: false,
                         ),
                       ),
@@ -393,20 +559,22 @@ class PrintService {
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
-                      pw.SizedBox(height: 3),
+                      // pw.SizedBox(height: 3),
                       // Ticket IDs: matchId-ticketTypeId-ticketId
-                      pw.Text(
-                        '$matchIdStr-$ticketTypeIdStr-$ticketIdStr',
-                        style: pw.TextStyle(
-                          fontSize: 6,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
+                      // pw.Text(
+                      //   '$matchIdStr-$ticketTypeIdStr-$ticketIdStr',
+                      //   style: pw.TextStyle(
+                      //     fontSize: 6,
+                      //     fontWeight: pw.FontWeight.bold,
+                      //   ),
+                      // ),
                       pw.SizedBox(height: 3),
                       pw.Text(
-                        code,
+                        code.length > 8
+                            ? code.substring(code.length - 8).toUpperCase()
+                            : code.toUpperCase(),
                         style: pw.TextStyle(
-                          fontSize: 6,
+                          fontSize: 8,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
@@ -471,6 +639,8 @@ class PrintService {
     List<int>? ticketIds,
     List<int>? matchIds,
     List<int>? ticketTypeIds,
+    List<int>? ticketNumbers,
+    List<int>? ticketTotals,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -499,6 +669,8 @@ class PrintService {
               ticketIds: ticketIds,
               matchIds: matchIds,
               ticketTypeIds: ticketTypeIds,
+              ticketNumbers: ticketNumbers,
+              ticketTotals: ticketTotals,
             );
 
             final printer = await _getDefaultPrinter();
@@ -539,6 +711,8 @@ class PrintService {
               ticketIds: ticketIds,
               matchIds: matchIds,
               ticketTypeIds: ticketTypeIds,
+              ticketNumbers: ticketNumbers,
+              ticketTotals: ticketTotals,
             );
             if (ok) return true;
           }
@@ -554,12 +728,20 @@ class PrintService {
         if (await _requestBluetoothPermissions()) {
           if (await _connectToPrinter(deviceAddress: deviceAddress)) {
             for (int i = 0; i < numberOfTickets; i++) {
+              final displayTicketNumber =
+                  ticketNumbers != null && i < ticketNumbers.length
+                  ? ticketNumbers[i]
+                  : i + 1;
+              final displayTicketTotal =
+                  ticketTotals != null && i < ticketTotals.length
+                  ? ticketTotals[i]
+                  : numberOfTickets;
               final success = await printTicket(
                 eventName: eventName,
                 ticketType: ticketType,
                 price: price,
-                ticketNumber: i + 1,
-                totalTickets: numberOfTickets,
+                ticketNumber: displayTicketNumber,
+                totalTickets: displayTicketTotal,
                 ticketCode: ticketCodes[i],
                 validationUrl:
                     '${kBaseUrl.replaceAll('/api', '')}/validate/${ticketCodes[i]}',
@@ -580,7 +762,8 @@ class PrintService {
               );
               if (!success) return false;
               if (i < numberOfTickets - 1) {
-                await Future.delayed(const Duration(milliseconds: 500));
+                final delayMs = await _settingsService.getPrinterDelayMs();
+                await Future.delayed(Duration(milliseconds: delayMs));
               }
             }
             return true;
@@ -604,6 +787,8 @@ class PrintService {
         ticketIds: ticketIds,
         matchIds: matchIds,
         ticketTypeIds: ticketTypeIds,
+        ticketNumbers: ticketNumbers,
+        ticketTotals: ticketTotals,
       );
       if (onSavedPdf != null) onSavedPdf(pdfPath);
       return true;
@@ -628,6 +813,8 @@ class PrintService {
     List<int>? ticketIds,
     List<int>? matchIds,
     List<int>? ticketTypeIds,
+    List<int>? ticketNumbers,
+    List<int>? ticketTotals,
   }) async {
     try {
       // Request storage permission
@@ -651,6 +838,8 @@ class PrintService {
           ticketIds: ticketIds,
           matchIds: matchIds,
           ticketTypeIds: ticketTypeIds,
+          ticketNumbers: ticketNumbers,
+          ticketTotals: ticketTotals,
         );
       }
 
@@ -668,6 +857,8 @@ class PrintService {
         ticketIds: ticketIds,
         matchIds: matchIds,
         ticketTypeIds: ticketTypeIds,
+        ticketNumbers: ticketNumbers,
+        ticketTotals: ticketTotals,
       );
 
       final bytes = await pdf.save();
@@ -698,6 +889,8 @@ class PrintService {
           ticketIds: ticketIds,
           matchIds: matchIds,
           ticketTypeIds: ticketTypeIds,
+          ticketNumbers: ticketNumbers,
+          ticketTotals: ticketTotals,
         );
       }
 
@@ -729,6 +922,8 @@ class PrintService {
         ticketIds: ticketIds,
         matchIds: matchIds,
         ticketTypeIds: ticketTypeIds,
+        ticketNumbers: ticketNumbers,
+        ticketTotals: ticketTotals,
       );
     }
   }
@@ -749,6 +944,8 @@ class PrintService {
     List<int>? ticketIds,
     List<int>? matchIds,
     List<int>? ticketTypeIds,
+    List<int>? ticketNumbers,
+    List<int>? ticketTotals,
   }) async {
     final pdf = await _generateThermalStylePdfDoc(
       eventName: eventName,
@@ -764,6 +961,8 @@ class PrintService {
       ticketIds: ticketIds,
       matchIds: matchIds,
       ticketTypeIds: ticketTypeIds,
+      ticketNumbers: ticketNumbers,
+      ticketTotals: ticketTotals,
     );
 
     final bytes = await pdf.save();

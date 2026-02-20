@@ -6,7 +6,7 @@ import 'package:myapp/data/models/event_model.dart';
 import 'package:myapp/data/services/offline_event_service.dart';
 import 'package:myapp/data/services/sync_api.dart';
 import 'package:myapp/data/services/sync_service.dart';
-import 'package:myapp/features/ticket_validation/offline_validation_result_screen.dart';
+import 'package:myapp/features/ticket_validation/widgets/validation_result_overlay.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -62,7 +62,8 @@ class _ScannerOverlayPainter extends CustomPainter {
 
 class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
-  final OfflineValidationService _validationService = OfflineValidationService();
+  final OfflineValidationService _validationService =
+      OfflineValidationService();
   final SyncApi _syncApi = SyncApi();
   final OfflineEventService _offlineEventService = OfflineEventService();
   final DatabaseHelper _db = DatabaseHelper();
@@ -118,7 +119,7 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
         ? null
         : 'validatedCount_event_$effectiveEventId';
     final count = key == null ? 0 : (prefs.getInt(key) ?? 0);
-    
+
     // Load event name
     String? eventName;
     if (effectiveEventId != null) {
@@ -131,7 +132,7 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
         eventName = event.name;
       } catch (_) {}
     }
-    
+
     if (!mounted) return;
     setState(() {
       _eventId = effectiveEventId;
@@ -176,7 +177,10 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
             if (_eventName != null)
               Text(
                 _eventName!,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
+                ),
               ),
           ],
         ),
@@ -192,7 +196,10 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.cloud_upload),
               tooltip: 'Sync validations to server',
@@ -203,7 +210,10 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange,
                     borderRadius: BorderRadius.circular(12),
@@ -229,8 +239,8 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                  'Validated: $_validatedCount',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                'Validated: $_validatedCount',
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -256,7 +266,7 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
                             final String? code = barcodes.first.rawValue;
                             if (code != null) {
                               _controller.stop();
-                              _navigateToResult(code);
+                              _validateTicketInline(code);
                             } else {
                               _isProcessing = false;
                             }
@@ -277,15 +287,16 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
                       children: [
                         Text(
                           'Validated: $_validatedCount',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
+                          style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         if (_unsyncedValidations > 0) ...[
                           const SizedBox(height: 4),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.orange.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(8),
@@ -293,7 +304,11 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.sync, size: 16, color: Colors.orange),
+                                const Icon(
+                                  Icons.sync,
+                                  size: 16,
+                                  color: Colors.orange,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '$_unsyncedValidations pending sync',
@@ -345,47 +360,101 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
   }
 
   Future<void> _manualSync() async {
+    print('=== MANUAL SYNC STARTED ===');
     setState(() {
       _isSyncing = true;
     });
 
     try {
+      print('Calling syncService.syncAll()...');
       final result = await _syncService.syncAll();
-      
-      if (!mounted) return;
+      print(
+        'Sync result: success=${result.success}, message=${result.message}',
+      );
+      print(
+        'Validations synced: ${result.validationsSynced}, Tickets synced: ${result.ticketsSynced}',
+      );
+
+      if (!mounted) {
+        print('Widget not mounted, returning early');
+        return;
+      }
 
       if (result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '✅ Synced: ${result.validationsSynced} validations, ${result.ticketsSynced} tickets',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-        
         // Reload stats to update the indicator
         await _loadStats();
+
+        // Show success dialog
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: const Text('Sync Successful'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${result.validationsSynced} validations synced',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                if (result.ticketsSynced > 0)
+                  Text(
+                    '${result.ticketsSynced} tickets synced',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Sync failed: ${result.message}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
+        // Show error dialog
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.error, color: Colors.red, size: 48),
+            title: const Text('Sync Failed'),
+            content: Text(
+              result.message ?? 'Unknown error occurred',
+              style: const TextStyle(fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Sync error: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
+      print('Sync exception caught: $e');
+      if (!mounted) {
+        print('Widget not mounted after exception');
+        return;
+      }
+      // Show error dialog
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.error, color: Colors.red, size: 48),
+          title: const Text('Sync Error'),
+          content: Text('$e', style: const TextStyle(fontSize: 14)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
     } finally {
+      print('=== MANUAL SYNC FINISHED ===');
       if (mounted) {
         setState(() {
           _isSyncing = false;
@@ -418,40 +487,83 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
     }
   }
 
-  void _navigateToResult(String code) {
+  /// Validates a ticket and displays result inline without navigation
+  ///
+  /// This method:
+  /// 1. Validates the ticket using offline validation service
+  /// 2. Shows a non-blocking overlay with the result
+  /// 3. Updates validation count and stats
+  /// 4. Resumes scanning immediately after
+  Future<void> _validateTicketInline(String code) async {
     final eventId = _eventId;
     if (eventId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No event selected. Please select an event first.')),
-      );
-      _isProcessing = false;
-      _controller.start();
+      _showErrorSnackBar('No event selected. Please select an event first.');
+      _resumeScanning();
       return;
     }
-    
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => OfflineValidationResultScreen(
-          qrContent: code,
-          matcheId: eventId,
-        ),
-      ),
-    ).then((validatedRef) {
-      if (validatedRef is String && validatedRef.isNotEmpty) {
-        if (!_countedRefs.contains(validatedRef)) {
-          setState(() {
-            _validatedCount += 1;
-            _countedRefs.add(validatedRef);
-          });
-          _persistCount();
-        }
+
+    try {
+      // Validate the ticket
+      final result = await _validationService.validateTicket(
+        qrContent: code,
+        matcheId: eventId,
+      );
+
+      // Update validation count for successful validations
+      if (result.isSuccess &&
+          result.ticketId != null &&
+          !_countedRefs.contains(result.ticketId)) {
+        setState(() {
+          _validatedCount += 1;
+          _countedRefs.add(result.ticketId!);
+        });
+        _persistCount();
       }
+
       // Reload stats to update sync indicator
-      _loadStats();
-      _isProcessing = false;
-      _controller.start();
-    }); // Reset processing flag when returning
+      await _loadStats();
+
+      // Show result overlay (non-blocking)
+      if (mounted) {
+        showValidationOverlay(
+          context: context,
+          result: result,
+          onDismiss: () {
+            // Resume scanning immediately after dismiss
+            _resumeScanning();
+          },
+        );
+      }
+
+      // Trigger background sync for successful validations
+      if (result.isSuccess) {
+        _syncService.syncNow().catchError((_) {
+          // Silent fail - sync will retry later
+        });
+      }
+    } catch (e) {
+      _showErrorSnackBar('Validation error: $e');
+      _resumeScanning();
+    }
+  }
+
+  /// Resumes scanning and resets processing flag
+  void _resumeScanning() {
+    _isProcessing = false;
+    _controller.start();
+  }
+
+  /// Shows error message in snackbar
+  void _showErrorSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 }
 
@@ -515,11 +627,10 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
 
     try {
       final result = await widget.syncApi.getMatchTickets(event.id);
-      
-      final ticketsData = result.tickets.map((t) => {
-        'ticket_id': t.ticketId,
-        'reference_no': t.referenceNo,
-      }).toList();
+
+      final ticketsData = result.tickets
+          .map((t) => {'ticket_id': t.ticketId, 'reference_no': t.referenceNo})
+          .toList();
 
       final insertedCount = await widget.db.insertDownloadedTickets(
         matcheId: event.id,
@@ -531,7 +642,7 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
       await prefs.setInt('kActiveEventId', event.id);
 
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Downloaded $insertedCount tickets for ${event.name}'),
@@ -572,7 +683,9 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
               ),
               child: Column(
                 children: [
@@ -616,68 +729,80 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                                const SizedBox(height: 16),
-                                Text(_error!, textAlign: TextAlign.center),
-                                const SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: _loadEvents,
-                                  child: const Text('Retry'),
-                                ),
-                              ],
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.red,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(_error!, textAlign: TextAlign.center),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _loadEvents,
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _events == null || _events!.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('No events available'),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: _events!.length,
+                      itemBuilder: (context, index) {
+                        final event = _events![index];
+                        final isDownloading = _downloadingEventId == event.id;
+
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.primaryContainer,
+                            child: Icon(
+                              Icons.event,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onPrimaryContainer,
                             ),
                           ),
-                        )
-                      : _events == null || _events!.isEmpty
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(24),
-                                child: Text('No events available'),
-                              ),
-                            )
-                          : ListView.builder(
-                              controller: scrollController,
-                              itemCount: _events!.length,
-                              itemBuilder: (context, index) {
-                                final event = _events![index];
-                                final isDownloading = _downloadingEventId == event.id;
-
-                                return ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                                    child: Icon(
-                                      Icons.event,
-                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                                    ),
+                          title: Text(
+                            event.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            event.venue ?? 'No venue',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: isDownloading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
                                   ),
-                                  title: Text(
-                                    event.name,
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
-                                  ),
-                                  subtitle: Text(
-                                    event.venue ?? 'No venue',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  trailing: isDownloading
-                                      ? const SizedBox(
-                                          width: 24,
-                                          height: 24,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      : IconButton(
-                                          icon: const Icon(Icons.download),
-                                          onPressed: () => _downloadEventTickets(event),
-                                        ),
-                                  onTap: isDownloading ? null : () => _downloadEventTickets(event),
-                                );
-                              },
-                            ),
+                                )
+                              : IconButton(
+                                  icon: const Icon(Icons.download),
+                                  onPressed: () => _downloadEventTickets(event),
+                                ),
+                          onTap: isDownloading
+                              ? null
+                              : () => _downloadEventTickets(event),
+                        );
+                      },
+                    ),
             ),
           ],
         );

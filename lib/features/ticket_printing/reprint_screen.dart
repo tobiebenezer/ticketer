@@ -136,7 +136,11 @@ class _ReprintScreenState extends State<ReprintScreen> {
       return;
     }
 
-    final totalTickets = _selectedTickets.length;
+    final selectedTicketIds = _filteredTickets
+        .map((ticket) => ticket['ticket_id']?.toString() ?? '')
+        .where((ticketId) => _selectedTickets.contains(ticketId))
+        .toList();
+    final totalTickets = selectedTicketIds.length;
     setState(() {
       _isPrinting = true;
       _printProgress = 0;
@@ -147,7 +151,7 @@ class _ReprintScreenState extends State<ReprintScreen> {
     int failCount = 0;
 
     int currentIndex = 0;
-    for (final ticketId in _selectedTickets) {
+    for (final ticketId in selectedTicketIds) {
       currentIndex++;
 
       // Update progress
@@ -176,8 +180,8 @@ class _ReprintScreenState extends State<ReprintScreen> {
           eventName: eventName,
           ticketType: ticketTypeName,
           price: double.tryParse(ticket['amount']?.toString() ?? '0') ?? 0.0,
-          ticketNumber: 1,
-          totalTickets: 1,
+          ticketNumber: currentIndex,
+          totalTickets: totalTickets,
           ticketCode: ticket['ticket_id'] ?? '',
           validationUrl: 'https://example.com/validate/${ticket['ticket_id']}',
           transactionId: ticket['ticket_id'] ?? '',

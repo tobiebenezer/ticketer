@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:esc_pos_printer_lts/esc_pos_printer_lts.dart';
 import 'package:esc_pos_utils_lts/esc_pos_utils_lts.dart';
 import 'package:myapp/core/constants/network_constants.dart';
+import 'package:myapp/core/services/app_settings_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -14,6 +15,8 @@ class NetworkPrintService {
   // Thermal printer paper width in pixels (58mm ≈ 384px, 80mm ≈ 576px at 203 DPI)
   static const double kPaperWidth58mm = 384.0;
   static const double kPaperWidth80mm = 576.0;
+
+  final AppSettingsService _settingsService = AppSettingsService();
 
   /// Generate custom ticket number format: TKA-{userId}-{shortId}
   Future<String> _getTicketNumber(int? ticketId) async {
@@ -50,6 +53,8 @@ class NetworkPrintService {
     List<int>? ticketIds,
     List<int>? matchIds,
     List<int>? ticketTypeIds,
+    List<int>? ticketNumbers,
+    List<int>? ticketTotals,
   }) async {
     final profile = await CapabilityProfile.load();
     final printer = NetworkPrinter(paperSize, profile);
@@ -78,6 +83,14 @@ class NetworkPrintService {
 
       for (int i = 0; i < numberOfTickets; i++) {
         final code = ticketCodes[i];
+        final displayTicketNumber =
+            ticketNumbers != null && i < ticketNumbers.length
+            ? ticketNumbers[i]
+            : i + 1;
+        final displayTicketTotal =
+            ticketTotals != null && i < ticketTotals.length
+            ? ticketTotals[i]
+            : numberOfTickets;
         final validationUrl =
             '${kBaseUrl.replaceAll('/api', '')}/validate/$code';
 
@@ -86,8 +99,8 @@ class NetworkPrintService {
           eventName: eventName,
           ticketType: ticketType,
           price: price,
-          ticketNumber: i + 1,
-          totalTickets: numberOfTickets,
+          ticketNumber: displayTicketNumber,
+          totalTickets: displayTicketTotal,
           validationUrl: validationUrl,
           transactionId: transactionId,
           customerName: customerName,
@@ -118,7 +131,8 @@ class NetworkPrintService {
         // Delay between tickets to prevent printer buffer overflow
         // This gives the printer time to process and print each ticket
         if (i < numberOfTickets - 1) {
-          await Future.delayed(const Duration(milliseconds: 1500));
+          final delayMs = await _settingsService.getPrinterDelayMs();
+          await Future.delayed(Duration(milliseconds: delayMs));
         }
       }
     } catch (e) {
@@ -321,7 +335,8 @@ class NetworkPrintService {
                       Icon(Icons.access_time, size: isWide ? 18 : 16),
                       const SizedBox(width: 6),
                       Text(
-                        timeStr,
+                        // timeStr,
+                        "4:00 pm",
                         style: TextStyle(
                           fontSize: isWide ? 16 : 14,
                           fontWeight: FontWeight.bold,
@@ -408,44 +423,44 @@ class NetworkPrintService {
                     ],
                   ),
 
-                  SizedBox(height: isWide ? 12 : 10),
+                  // SizedBox(height: isWide ? 12 : 10),
 
                   // Customer Info
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(isWide ? 12 : 10),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.black, width: 1.5),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'TICKET HOLDER',
-                          style: TextStyle(
-                            fontSize: isWide ? 10 : 9,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        Text(
-                          (customerName ?? 'GUEST').toUpperCase(),
-                          style: TextStyle(
-                            fontSize: isWide ? 16 : 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (customerPhone != null && customerPhone.isNotEmpty)
-                          Text(
-                            customerPhone,
-                            style: TextStyle(fontSize: isWide ? 13 : 12),
-                          ),
-                      ],
-                    ),
-                  ),
+                  // Container(
+                  //   width: double.infinity,
+                  //   padding: EdgeInsets.all(isWide ? 12 : 10),
+                  //   decoration: BoxDecoration(
+                  //     border: Border.all(color: Colors.black, width: 1.5),
+                  //     borderRadius: BorderRadius.circular(4),
+                  //   ),
+                  //   child: Column(
+                  //     crossAxisAlignment: CrossAxisAlignment.start,
+                  //     children: [
+                  //       Text(
+                  //         'TICKET HOLDER',
+                  //         style: TextStyle(
+                  //           fontSize: isWide ? 10 : 9,
+                  //           fontWeight: FontWeight.bold,
+                  //           color: Colors.grey[600],
+                  //         ),
+                  //       ),
+                  //       Text(
+                  //         (customerName ?? 'GUEST').toUpperCase(),
+                  //         style: TextStyle(
+                  //           fontSize: isWide ? 16 : 14,
+                  //           fontWeight: FontWeight.w800,
+                  //         ),
+                  //         maxLines: 1,
+                  //         overflow: TextOverflow.ellipsis,
+                  //       ),
+                  //       if (customerPhone != null && customerPhone.isNotEmpty)
+                  //         Text(
+                  //           customerPhone,
+                  //           style: TextStyle(fontSize: isWide ? 13 : 12),
+                  //         ),
+                  //     ],
+                  //   ),
+                  // ),
                 ],
               ),
             ),
@@ -517,7 +532,7 @@ class NetworkPrintService {
                     child: QrImageView(
                       data: validationUrl,
                       version: QrVersions.auto,
-                      size: isWide ? 160 : 130,
+                      size: isWide ? 220 : 200,
                       padding: EdgeInsets.zero,
                       backgroundColor: Colors.white,
                     ),
@@ -531,22 +546,29 @@ class NetworkPrintService {
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  SizedBox(height: isWide ? 6 : 4),
+                  // SizedBox(height: isWide ? 6 : 4),
                   // Ticket IDs: matchId-ticketTypeId-ticketId
-                  Text(
-                    '${matchId ?? "-"}-${ticketTypeId ?? "-"}-${ticketId ?? "-"}',
-                    style: TextStyle(
-                      fontSize: isWide ? 10 : 9,
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  // Text(
+                  //   '${matchId ?? "-"}-${ticketTypeId ?? "-"}-${ticketId ?? "-"}',
+                  //   style: TextStyle(
+                  //     fontSize: isWide ? 10 : 9,
+                  //     color: Colors.black,
+                  //     fontWeight: FontWeight.bold,
+                  //   ),
+                  // ),
                   SizedBox(height: isWide ? 4 : 3),
                   // Ticket code (from validation URL)
                   Text(
-                    validationUrl.split('/').last,
+                    validationUrl.split('/').last.length > 8
+                        ? validationUrl
+                              .split('/')
+                              .last
+                              .substring(
+                                validationUrl.split('/').last.length - 8,
+                              )
+                        : validationUrl.split('/').last,
                     style: TextStyle(
-                      fontSize: isWide ? 9 : 8,
+                      fontSize: isWide ? 16 : 14,
                       color: Colors.black,
                       fontWeight: FontWeight.bold,
                     ),

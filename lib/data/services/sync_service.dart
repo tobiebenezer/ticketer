@@ -177,50 +177,152 @@ class SyncService {
     }
   }
 
-  /// Sync offline tickets.
+  /// Sync offline tickets in batches to avoid 413 errors.
   Future<_PartialSyncResult> _syncTickets() async {
     try {
-      final unsyncedTickets = await _db.getUnsyncedTickets();
+      final unsyncedTickets = await _db.getUnsyncedTicketsReadyForSync();
       if (unsyncedTickets.isEmpty) {
         return _PartialSyncResult(success: true, syncedCount: 0);
       }
 
-      // Transform to API format
-      final ticketsPayload = unsyncedTickets.map((ticket) {
-        return {
-          'tuid': ticket['ticket_id'],
-          'matche_id': ticket['matche_id'],
-          'ticket_types_id': ticket['ticket_types_id'],
-          'payload': ticket['payload'],
-          'signature': ticket['signature'],
-          'customer_name': ticket['customer_name'],
-          'created_at': ticket['created_at'],
-        };
-      }).toList();
+      // Transform and sanitize to API format
+      final ticketsPayload = <Map<String, dynamic>>[];
+      final skippedTickets = <String>[];
 
-      print('Syncing ${ticketsPayload.length} tickets');
+      for (final ticket in unsyncedTickets) {
+        final tuid = ticket['ticket_id']?.toString();
+        final matcheId = ticket['matche_id'];
+        final ticketTypesId = ticket['ticket_types_id'];
+        final payload = ticket['payload']?.toString();
+        final createdAt = ticket['created_at']?.toString();
+
+        // Validate required fields
+        if (tuid == null || tuid.isEmpty) {
+          print('Skipping ticket: missing tuid');
+          skippedTickets.add('unknown-missing-tuid');
+          continue;
+        }
+
+        // Validate UUID format (8-4-4-4-12 pattern)
+        final uuidRegex = RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+        );
+        if (!uuidRegex.hasMatch(tuid)) {
+          print('Skipping ticket $tuid: invalid UUID format');
+          skippedTickets.add(tuid);
+          continue;
+        }
+
+        if (matcheId == null) {
+          print('Skipping ticket $tuid: missing matche_id');
+          skippedTickets.add(tuid);
+          continue;
+        }
+
+        if (ticketTypesId == null) {
+          print('Skipping ticket $tuid: missing ticket_types_id');
+          skippedTickets.add(tuid);
+          continue;
+        }
+
+        if (payload == null || payload.isEmpty) {
+          print('Skipping ticket $tuid: missing payload');
+          skippedTickets.add(tuid);
+          continue;
+        }
+
+        if (createdAt == null || createdAt.isEmpty) {
+          print('Skipping ticket $tuid: missing created_at');
+          skippedTickets.add(tuid);
+          continue;
+        }
+
+        // Build sanitized payload
+        ticketsPayload.add({
+          'tuid': tuid,
+          'matche_id': matcheId is int
+              ? matcheId
+              : int.tryParse(matcheId.toString()) ?? 0,
+          'ticket_types_id': ticketTypesId is int
+              ? ticketTypesId
+              : int.tryParse(ticketTypesId.toString()) ?? 0,
+          'payload': payload,
+          'signature': ticket['signature']?.toString() ?? '',
+          'customer_name': ticket['customer_name']?.toString(),
+          'created_at': createdAt,
+        });
+      }
+
+      if (ticketsPayload.isEmpty) {
+        print('No valid tickets to sync (${skippedTickets.length} skipped)');
+        return _PartialSyncResult(success: true, syncedCount: 0);
+      }
+
       print(
-        'First ticket sample: ${ticketsPayload.isNotEmpty ? ticketsPayload.first : "none"}',
+        'Syncing ${ticketsPayload.length} tickets (${skippedTickets.length} skipped)',
       );
-      print('ticketsPayload: $ticketsPayload');
 
-      final result = await _api.syncTickets(ticketsPayload);
+      // Send in batches of 50 to avoid 413 errors
+      const batchSize = 50;
+      int totalAccepted = 0;
+      int totalRejected = 0;
+      final List<String> failedBatches = [];
 
-      print('Sync result: $result');
-      print('Accepted: ${result.accepted}');
-      print('Rejected: ${result.rejected}');
-      print('Accepted count: ${result.acceptedCount}');
-      print('Rejected count: ${result.rejectedCount}');
+      for (int i = 0; i < ticketsPayload.length; i += batchSize) {
+        final end = (i + batchSize < ticketsPayload.length)
+            ? i + batchSize
+            : ticketsPayload.length;
+        final batch = ticketsPayload.sublist(i, end);
 
-      // Mark accepted tickets as synced
-      for (final tuid in result.accepted) {
-        await _db.markTicketSynced(tuid);
+        final batchNumber = (i ~/ batchSize) + 1;
+        final totalBatches = (ticketsPayload.length / batchSize).ceil();
+
+        print(
+          'Sending batch $batchNumber/$totalBatches (${batch.length} tickets)',
+        );
+
+        try {
+          final result = await _api.syncTickets(batch);
+
+          print(
+            'Batch $batchNumber result: ${result.acceptedCount} accepted, ${result.rejectedCount} rejected',
+          );
+
+          totalAccepted += result.acceptedCount;
+          totalRejected += result.rejectedCount;
+
+          // Mark accepted tickets as synced
+          for (final tuid in result.accepted) {
+            await _db.markTicketSynced(tuid);
+          }
+
+          // Small delay between batches to avoid overwhelming server
+          if (i + batchSize < ticketsPayload.length) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        } catch (e) {
+          print('Batch $batchNumber failed: $e');
+          failedBatches.add('Batch $batchNumber (${batch.length} tickets)');
+
+          // Continue with next batch instead of failing completely
+          continue;
+        }
+      }
+
+      print(
+        'Total sync result: $totalAccepted accepted, $totalRejected rejected',
+      );
+      if (failedBatches.isNotEmpty) {
+        print('Failed batches: ${failedBatches.join(", ")}');
       }
 
       return _PartialSyncResult(
-        success: true,
-        syncedCount: result.acceptedCount,
-        rejectedCount: result.rejectedCount,
+        success: failedBatches.isEmpty,
+        syncedCount: totalAccepted,
+        rejectedCount: totalRejected,
+        message: failedBatches.isNotEmpty
+            ? 'Some batches failed: ${failedBatches.join(", ")}'
+            : null,
       );
     } catch (e) {
       print('Ticket sync error: $e');
@@ -239,65 +341,150 @@ class SyncService {
         return _PartialSyncResult(success: true, syncedCount: 0);
       }
 
-      // Transform to API format
-      final validationsPayload = unsyncedValidations.map((validation) {
+      // Transform and sanitize to API format
+      final validationsPayload = <Map<String, dynamic>>[];
+      final skippedValidations = <String>[];
+
+      for (final validation in unsyncedValidations) {
+        final ticketId = validation['ticket_id']?.toString();
+        final validatedAt = validation['validated_at']?.toString();
+
+        // Validate required fields
+        if (ticketId == null || ticketId.isEmpty) {
+          print('Skipping validation: missing ticket_id');
+          skippedValidations.add('unknown-missing-ticket_id');
+          continue;
+        }
+
+        if (validatedAt == null || validatedAt.isEmpty) {
+          print('Skipping validation for $ticketId: missing validated_at');
+          skippedValidations.add(ticketId);
+          continue;
+        }
+
         // Parse metadata from JSON string to object
-        dynamic metadata;
+        Map<String, dynamic>? metadata;
         final metadataStr = validation['metadata'];
-        if (metadataStr != null && metadataStr is String && metadataStr.isNotEmpty) {
+        if (metadataStr != null &&
+            metadataStr is String &&
+            metadataStr.isNotEmpty) {
           try {
-            metadata = jsonDecode(metadataStr);
-          } catch (_) {
+            final decoded = jsonDecode(metadataStr);
+            // Ensure metadata is a Map, not other types
+            if (decoded is Map<String, dynamic>) {
+              metadata = decoded;
+            } else if (decoded is Map) {
+              metadata = Map<String, dynamic>.from(decoded);
+            }
+          } catch (e) {
+            print('Failed to parse metadata for $ticketId: $e');
             metadata = null;
           }
         }
-        
-        return {
-          'ticket_id': validation['ticket_id'],
-          'validated_at': validation['validated_at'],
+
+        validationsPayload.add({
+          'ticket_id': ticketId,
+          'validated_at': validatedAt,
           'metadata': metadata,
-        };
-      }).toList();
+        });
+      }
 
-      final result = await _api.syncValidations(validationsPayload);
+      if (validationsPayload.isEmpty) {
+        print(
+          'No valid validations to sync (${skippedValidations.length} skipped)',
+        );
+        return _PartialSyncResult(success: true, syncedCount: 0);
+      }
 
-      // Mark validations as synced with conflict info
-      for (final accepted in result.accepted) {
-        // Find if this validation has conflict info
-        final conflictInfo = result.conflicts.firstWhere(
-          (c) => c.ticketId == accepted.ticketId,
-          orElse: () => ConflictInfo(
-            ticketId: accepted.ticketId,
-            yourValidationId: accepted.validationId,
-            isFirstScan: true,
-          ),
+      print(
+        'Syncing ${validationsPayload.length} validations (${skippedValidations.length} skipped)',
+      );
+
+      // Send in batches of 100 to avoid 413 errors
+      const batchSize = 100;
+      int totalAccepted = 0;
+      final List<String> failedBatches = [];
+      final List<ConflictInfo> allConflicts = [];
+
+      for (int i = 0; i < validationsPayload.length; i += batchSize) {
+        final end = (i + batchSize < validationsPayload.length)
+            ? i + batchSize
+            : validationsPayload.length;
+        final batch = validationsPayload.sublist(i, end);
+
+        final batchNumber = (i ~/ batchSize) + 1;
+        final totalBatches = (validationsPayload.length / batchSize).ceil();
+
+        print(
+          'Sending validation batch $batchNumber/$totalBatches (${batch.length} validations)',
         );
 
-        // Find local validation ID
-        final localValidation = unsyncedValidations.firstWhere(
-          (v) => v['ticket_id'] == accepted.ticketId,
-          orElse: () => <String, dynamic>{},
-        );
+        try {
+          final result = await _api.syncValidations(batch);
 
-        if (localValidation.isNotEmpty) {
-          await _db.markValidationSynced(
-            localValidation['id'] as String,
-            isFirstScan: conflictInfo.isFirstScan,
-            conflict: !conflictInfo.isFirstScan,
+          print(
+            'Validation batch $batchNumber result: ${result.accepted.length} accepted',
           );
+
+          totalAccepted += result.accepted.length;
+          allConflicts.addAll(result.conflicts);
+
+          // Mark validations as synced with conflict info
+          for (final accepted in result.accepted) {
+            // Find if this validation has conflict info
+            final conflictInfo = result.conflicts.firstWhere(
+              (c) => c.ticketId == accepted.ticketId,
+              orElse: () => ConflictInfo(
+                ticketId: accepted.ticketId,
+                yourValidationId: accepted.validationId,
+                isFirstScan: true,
+              ),
+            );
+
+            // Find local validation ID
+            final localValidation = unsyncedValidations.firstWhere(
+              (v) => v['ticket_id'] == accepted.ticketId,
+              orElse: () => <String, dynamic>{},
+            );
+
+            if (localValidation.isNotEmpty) {
+              await _db.markValidationSynced(
+                localValidation['id'] as String,
+                isFirstScan: conflictInfo.isFirstScan,
+                conflict: !conflictInfo.isFirstScan,
+              );
+            }
+          }
+
+          // Small delay between batches to avoid overwhelming server
+          if (i + batchSize < validationsPayload.length) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        } catch (e) {
+          print('Validation batch $batchNumber failed: $e');
+          failedBatches.add('Batch $batchNumber (${batch.length} validations)');
+
+          // Continue with next batch instead of failing completely
+          continue;
         }
       }
 
+      print('Total validation sync result: $totalAccepted accepted');
+      if (failedBatches.isNotEmpty) {
+        print('Failed validation batches: ${failedBatches.join(", ")}');
+      }
+
       // Notify about conflicts
-      if (result.hasConflicts) {
-        onConflictsDetected?.call(result.conflicts);
+      if (allConflicts.isNotEmpty) {
+        onConflictsDetected?.call(allConflicts);
       }
 
       return _PartialSyncResult(
-        success: true,
-        syncedCount: result.accepted.length,
-        rejectedCount: result.rejected.length,
-        conflicts: result.conflicts,
+        success: failedBatches.isEmpty,
+        syncedCount: totalAccepted,
+        message: failedBatches.isNotEmpty
+            ? 'Some batches failed: ${failedBatches.join(", ")}'
+            : null,
       );
     } catch (e) {
       return _PartialSyncResult(

@@ -1,13 +1,21 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:myapp/core/services/offline_sale_service.dart';
 import 'package:myapp/core/services/app_settings_service.dart';
+import 'package:myapp/data/local/database_helper.dart';
 import 'package:myapp/data/models/event_model.dart';
 import 'package:myapp/data/models/ticket_model.dart';
 import 'package:myapp/data/models/ticket_type.dart';
+import 'package:myapp/data/services/sync_service.dart';
 import 'package:myapp/data/services/ticket_api.dart';
 import 'package:myapp/features/checkout/sale_confirmation_screen.dart';
+import 'package:myapp/features/checkout/widgets/print_flow_drawer.dart';
 import 'package:myapp/features/ticket_printing/print_service.dart';
 import 'package:myapp/features/ticket_validation/widgets/sync_status_widget.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Unified Sell Ticket Screen
 ///
@@ -36,6 +44,7 @@ class SellTicketScreen extends StatefulWidget {
 }
 
 class _SellTicketScreenState extends State<SellTicketScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _ticketNumberController = TextEditingController(
     text: '1',
@@ -47,6 +56,7 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
   final OfflineSaleService _offlineSaleService = OfflineSaleService();
   final AppSettingsService _appSettingsService = AppSettingsService();
   final PrintService _printService = PrintService();
+  final DatabaseHelper _db = DatabaseHelper();
 
   bool _isSubmitting = false;
   String? _error;
@@ -57,15 +67,19 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
 
   // Fast mode features
   int _ticketsSoldCount = 0;
-  final List<PrintJob> _printQueue = [];
+  final List<PrintFlowJob> _printQueue = [];
   int _printingCount = 0;
   int _printedCount = 0;
   int _printFailedCount = 0;
+  int _syncReadyCount = 0;
+  int _syncBlockedCount = 0;
+  bool _isManualSyncing = false;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadPersistedPrintJobs();
 
     // Listen to quantity changes to update total dynamically
     _ticketNumberController.addListener(() {
@@ -97,6 +111,109 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     }
   }
 
+  Future<void> _loadPersistedPrintJobs() async {
+    try {
+      final rows = await _db.getPrintJobs();
+      if (!mounted) return;
+
+      final loaded = rows.map(PrintFlowJob.fromMap).toList();
+      for (final job in loaded) {
+        if (job.status == PrintFlowStatus.sending) {
+          job.status = PrintFlowStatus.queued;
+        }
+        job.selected = false;
+      }
+
+      setState(() {
+        _printQueue
+          ..clear()
+          ..addAll(loaded);
+      });
+      _persistAllJobs();
+      _recalculatePrintCounters();
+      _refreshSyncEligibilityCounts();
+
+      if (_queuedPrintCount > 0) {
+        _processPrintQueue();
+      }
+    } catch (e) {
+      debugPrint('Failed to load print jobs: $e');
+    }
+  }
+
+  Future<void> _persistJob(PrintFlowJob job) async {
+    await _db.upsertPrintJob(job.toMap());
+  }
+
+  Future<void> _persistAllJobs() async {
+    await _db.upsertPrintJobs(_printQueue.map((j) => j.toMap()).toList());
+  }
+
+  void _recalculatePrintCounters() {
+    if (!mounted) return;
+    final sent = _printQueue
+        .where((j) => j.status == PrintFlowStatus.sent)
+        .length;
+    final failed = _printQueue
+        .where(
+          (j) =>
+              j.status == PrintFlowStatus.failed ||
+              j.status == PrintFlowStatus.pdfFallback,
+        )
+        .length;
+
+    setState(() {
+      _printedCount = sent;
+      _printFailedCount = failed;
+    });
+  }
+
+  Future<void> _refreshSyncEligibilityCounts() async {
+    try {
+      final ready = await _db.getUnsyncedReadyForSyncCount();
+      final blocked = await _db.getUnsyncedBlockedByPrintCount();
+      if (!mounted) return;
+      setState(() {
+        _syncReadyCount = ready;
+        _syncBlockedCount = blocked;
+      });
+    } catch (e) {
+      debugPrint('Failed to refresh sync eligibility counts: $e');
+    }
+  }
+
+  Future<void> _syncReadyTicketsNow() async {
+    if (_isManualSyncing) return;
+
+    setState(() {
+      _isManualSyncing = true;
+    });
+
+    try {
+      final syncService = SyncService(db: _db);
+      final result = await syncService.syncNow();
+      await _refreshSyncEligibilityCounts();
+      if (!mounted) return;
+
+      _showQuickMessage(
+        result.success
+            ? 'Sync done: ${result.ticketsSynced} ticket(s)'
+            : (result.message ?? 'Sync failed'),
+        isSuccess: result.success,
+        isError: !result.success,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showQuickMessage('Sync error: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isManualSyncing = false;
+        });
+      }
+    }
+  }
+
   Future<void> _processSale() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -122,7 +239,6 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
       List<Ticket>? bookedTickets;
       List<String> offlineTicketIds = [];
       List<int> offlineSequentialIds = [];
-      int? offlineTotalCount;
 
       if (preferOffline) {
         // OFFLINE-FIRST: Try offline sale first
@@ -141,7 +257,6 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
             if (result.sequentialId != null) {
               offlineSequentialIds.add(result.sequentialId!);
             }
-            offlineTotalCount = result.totalTickets;
           } else {
             print('Offline single sale failed: ${result.errorMessage}');
           }
@@ -164,9 +279,6 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                 .where((t) => t.sequentialId != null)
                 .map((t) => t.sequentialId!)
                 .toList();
-            offlineTotalCount = batchResult.successfulTickets.isNotEmpty
-                ? batchResult.successfulTickets.last.totalTickets
-                : null;
           } else {
             print(
               'Offline batch sale failed: ${batchResult.failCount} failures',
@@ -196,7 +308,7 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
             ticketIds: offlineTicketIds,
             customerName: customerName,
             sequentialIds: offlineSequentialIds,
-            totalTickets: offlineTotalCount ?? offlineTicketIds.length,
+            totalTickets: offlineTicketIds.length,
           );
         }
 
@@ -255,11 +367,16 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
 
         // Queue print jobs
         if (_autoPrintEnabled) {
+          final purchaseBatchId = '${DateTime.now().microsecondsSinceEpoch}';
           for (int i = 0; i < bookedTickets.length; i++) {
             _queuePrintJob(
               ticketId: bookedTickets[i].id.toString(),
               customerName: customerName,
-              ticketNumber: _ticketsSoldCount - quantity + i + 1,
+              ticketNumber: i + 1,
+              totalTickets: bookedTickets.length,
+              purchaseBatchId: purchaseBatchId,
+              purchaseIndex: i + 1,
+              purchaseQuantity: bookedTickets.length,
             );
           }
         }
@@ -312,46 +429,21 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     required int totalTickets,
   }) async {
     if (ticketIds.isEmpty) return;
+    final purchaseBatchId = '${DateTime.now().microsecondsSinceEpoch}';
 
-    setState(() {
-      _printingCount++;
-    });
-
-    try {
-      final success = await _printService.printMultipleTickets(
-        eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
-        ticketType: widget.ticketType.name,
-        price: widget.ticketType.price,
-        numberOfTickets: ticketIds.length,
-        ticketCodes: ticketIds,
-        transactionId: ticketIds.first,
-        customerName: customerName.isEmpty ? null : customerName,
-        ticketIds: sequentialIds.isNotEmpty ? sequentialIds : null,
+    for (int i = 0; i < ticketIds.length; i++) {
+      _queuePrintJob(
+        ticketId: ticketIds[i],
+        customerName: customerName,
+        ticketNumber: i + 1,
+        purchaseBatchId: purchaseBatchId,
+        purchaseIndex: i + 1,
+        purchaseQuantity: totalTickets,
+        sequentialId: sequentialIds.isNotEmpty && i < sequentialIds.length
+            ? sequentialIds[i]
+            : null,
+        totalTickets: totalTickets,
       );
-
-      if (mounted) {
-        setState(() {
-          _printingCount--;
-          if (success) {
-            _printedCount += ticketIds.length;
-          } else {
-            _printFailedCount += ticketIds.length;
-          }
-        });
-      }
-
-      if (!success) {
-        _showQuickMessage('Print failed - check printer', isError: true);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _printingCount--;
-          _printFailedCount += ticketIds.length;
-        });
-      }
-      debugPrint('Batch print failed: $e');
-      _showQuickMessage('Print error: $e', isError: true);
     }
   }
 
@@ -360,20 +452,34 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     required String ticketId,
     required String customerName,
     required int ticketNumber,
+    String? purchaseBatchId,
+    int? purchaseIndex,
+    int? purchaseQuantity,
     int? sequentialId,
     int? totalTickets,
   }) {
-    final job = PrintJob(
+    final effectiveTotal = totalTickets ?? ticketNumber;
+    final now = DateTime.now();
+    final job = PrintFlowJob(
+      id: '${ticketId}_${DateTime.now().microsecondsSinceEpoch}',
       ticketId: ticketId,
       customerName: customerName,
       ticketNumber: ticketNumber,
-      sequentialId: sequentialId,
-      totalTickets: totalTickets,
+      purchaseBatchId: purchaseBatchId,
+      purchaseIndex: purchaseIndex ?? ticketNumber,
+      purchaseQuantity: purchaseQuantity ?? effectiveTotal,
+      displayTicketId: sequentialId,
+      totalTickets: effectiveTotal,
+      createdAt: now,
+      updatedAt: now,
     );
 
     setState(() {
       _printQueue.add(job);
     });
+    _persistJob(job);
+    _recalculatePrintCounters();
+    _refreshSyncEligibilityCounts();
 
     // Process the queue
     _processPrintQueue();
@@ -384,89 +490,84 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     // If already printing, don't start another process
     if (_printingCount > 0) return;
 
-    while (_printQueue.isNotEmpty) {
-      final job = _printQueue.first;
+    while (true) {
+      final nextIndex = _printQueue.indexWhere(
+        (job) => job.status == PrintFlowStatus.queued,
+      );
+      if (nextIndex == -1) break;
 
-      // Skip already completed jobs
-      if (job.status == PrintStatus.completed) {
-        if (mounted) {
-          setState(() {
-            _printQueue.removeAt(0);
-          });
-        }
-        continue;
-      }
+      final job = _printQueue[nextIndex];
 
       if (!mounted) break;
 
       setState(() {
         _printingCount++;
-        job.status = PrintStatus.printing;
+        job.status = PrintFlowStatus.sending;
+        job.attemptCount++;
+        job.updatedAt = DateTime.now();
       });
+      await _persistJob(job);
 
       try {
-        String? savedPdfPath;
-        final success = await _printService.printTicket(
+        final result = await _printService.printTicketWithResult(
           eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
           ticketType: widget.ticketType.name,
           price: widget.ticketType.price,
-          ticketNumber:
-              job.sequentialId ??
-              job.ticketNumber, // Use sequential ID for 'X/Y'
-          totalTickets:
-              job.totalTickets ?? _ticketsSoldCount, // Use total from DB
+          ticketNumber: job.effectiveTicketNumber,
+          totalTickets: job.effectiveTotalTickets,
           ticketCode: job.ticketId,
           validationUrl: job.ticketId,
           transactionId: job.ticketId,
           customerName: job.customerName.isEmpty ? null : job.customerName,
-          ticketId: job.sequentialId, // Use sequential ID for display, not UUID
-          onSavedPdf: (path) {
-            savedPdfPath = path;
-          },
+          ticketId: job.displayTicketId,
         );
 
         if (mounted) {
           setState(() {
-            job.status = success ? PrintStatus.completed : PrintStatus.failed;
-            if (success) {
-              _printedCount++;
-              // Only remove from queue if successful
-              _printQueue.removeAt(0);
+            if (result.isSent) {
+              job.status = PrintFlowStatus.sent;
+              job.lastError = null;
+              job.pdfPath = null;
+            } else if (result.isPdfFallback) {
+              job.status = PrintFlowStatus.pdfFallback;
+              job.lastError = 'Printer unavailable, PDF saved';
+              job.pdfPath = result.pdfPath;
             } else {
-              _printFailedCount++;
-              // Keep failed job in queue for retry
+              job.status = PrintFlowStatus.failed;
+              job.lastError = result.error ?? 'Failed to send to printer';
             }
             _printingCount--;
+            job.updatedAt = DateTime.now();
           });
-
-          // Notify user if PDF fallback was used
-          if (savedPdfPath != null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('No printer found. Ticket saved to: $savedPdfPath'),
-                duration: const Duration(seconds: 5),
-              ),
-            );
-          }
         }
+        await _persistJob(job);
+        _recalculatePrintCounters();
+        _refreshSyncEligibilityCounts();
 
         // Small delay between prints
-        if (success && _printQueue.isNotEmpty) {
+        if (result.isSent) {
           await Future.delayed(const Duration(milliseconds: 1000));
-        } else if (!success) {
-          // Stop processing queue on failure (e.g., paper out)
-          // User can retry manually
+        } else {
+          _showQuickMessage(
+            result.isPdfFallback
+                ? 'Printer unavailable. Ticket saved as PDF.'
+                : 'Print failed - check printer',
+            isError: true,
+          );
           break;
         }
       } catch (e) {
         if (mounted) {
           setState(() {
-            job.status = PrintStatus.failed;
-            _printFailedCount++;
+            job.status = PrintFlowStatus.failed;
             _printingCount--;
-            // Keep failed job in queue for retry
+            job.lastError = e.toString();
+            job.updatedAt = DateTime.now();
           });
         }
+        await _persistJob(job);
+        _recalculatePrintCounters();
+        _refreshSyncEligibilityCounts();
         debugPrint('Print failed: $e');
         debugPrint('Failed ticket ID: ${job.ticketId}');
         // Stop processing on error
@@ -480,23 +581,98 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     // Reset failed jobs to queued status
     setState(() {
       for (final job in _printQueue) {
-        if (job.status == PrintStatus.failed) {
-          job.status = PrintStatus.queued;
+        if (job.status == PrintFlowStatus.failed ||
+            job.status == PrintFlowStatus.pdfFallback) {
+          job.status = PrintFlowStatus.queued;
+          job.lastError = null;
+          job.pdfPath = null;
+          job.selected = false;
+          job.updatedAt = DateTime.now();
         }
       }
-      _printFailedCount = 0;
     });
+    _persistAllJobs();
+    _recalculatePrintCounters();
+    _refreshSyncEligibilityCounts();
     // Restart queue processing
     _processPrintQueue();
   }
 
   /// Clear all failed print jobs from queue
   void _clearFailedPrints() {
+    final idsToDelete = _printQueue
+        .where(
+          (job) =>
+              job.status == PrintFlowStatus.failed ||
+              job.status == PrintFlowStatus.pdfFallback,
+        )
+        .map((j) => j.id)
+        .toList();
     setState(() {
-      _printQueue.removeWhere((job) => job.status == PrintStatus.failed);
-      _printFailedCount = 0;
+      _printQueue.removeWhere(
+        (job) =>
+            job.status == PrintFlowStatus.failed ||
+            job.status == PrintFlowStatus.pdfFallback,
+      );
     });
+    for (final id in idsToDelete) {
+      _db.deletePrintJob(id);
+    }
+    _recalculatePrintCounters();
+    _refreshSyncEligibilityCounts();
   }
+
+  void _resendSelectedPrints() {
+    setState(() {
+      for (final job in _printQueue) {
+        if (job.selected) {
+          job.status = PrintFlowStatus.queued;
+          job.lastError = null;
+          job.pdfPath = null;
+          job.selected = false;
+          job.updatedAt = DateTime.now();
+        }
+      }
+    });
+    _persistAllJobs();
+    _recalculatePrintCounters();
+    _refreshSyncEligibilityCounts();
+    _processPrintQueue();
+  }
+
+  void _clearSentPrints() {
+    final idsToDelete = _printQueue
+        .where((job) => job.status == PrintFlowStatus.sent)
+        .map((j) => j.id)
+        .toList();
+    setState(() {
+      _printQueue.removeWhere((job) => job.status == PrintFlowStatus.sent);
+    });
+    for (final id in idsToDelete) {
+      _db.deletePrintJob(id);
+    }
+    _recalculatePrintCounters();
+    _refreshSyncEligibilityCounts();
+  }
+
+  void _togglePrintSelection(String jobId) {
+    setState(() {
+      final idx = _printQueue.indexWhere((job) => job.id == jobId);
+      if (idx != -1) {
+        _printQueue[idx].selected = !_printQueue[idx].selected;
+        _printQueue[idx].updatedAt = DateTime.now();
+      }
+    });
+    _persistAllJobs();
+  }
+
+  int get _queuedPrintCount => _printQueue
+      .where(
+        (job) =>
+            job.status == PrintFlowStatus.queued ||
+            job.status == PrintFlowStatus.sending,
+      )
+      .length;
 
   /// Clear form and focus for next sale (fast mode)
   void _clearFormForNextSale() {
@@ -546,9 +722,94 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     );
   }
 
+  /// Export unsynced tickets as JSON file
+  Future<void> _exportUnsyncedTickets() async {
+    try {
+      // Get unsynced tickets from database
+      final unsyncedTickets = await _db.getUnsyncedTickets();
+
+      if (unsyncedTickets.isEmpty) {
+        if (!mounted) return;
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.info, color: Colors.blue, size: 48),
+            title: const Text('No Data'),
+            content: const Text('There are no unsynced tickets to export.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      // Create export data with metadata
+      final exportData = {
+        'exported_at': DateTime.now().toIso8601String(),
+        'device_info': 'Flutter App Export',
+        'ticket_count': unsyncedTickets.length,
+        'tickets': unsyncedTickets.map((ticket) {
+          return {
+            'tuid': ticket['ticket_id'],
+            'matche_id': ticket['matche_id'],
+            'ticket_types_id': ticket['ticket_types_id'],
+            'payload': ticket['payload'],
+            'signature': ticket['signature'],
+            'customer_name': ticket['customer_name'],
+            'amount': ticket['amount'],
+            'status': ticket['status'],
+            'created_at': ticket['created_at'],
+          };
+        }).toList(),
+      };
+
+      // Convert to JSON
+      final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
+
+      // Get downloads directory
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'unsynced_tickets_$timestamp.json';
+      final file = File('${directory.path}/$fileName');
+
+      // Write file
+      await file.writeAsString(jsonString);
+
+      if (!mounted) return;
+
+      // Share the file
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'Unsynced Tickets Export',
+        text: 'Exported ${unsyncedTickets.length} unsynced tickets',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.error, color: Colors.red, size: 48),
+          title: const Text('Export Failed'),
+          content: Text('Failed to export tickets: $e'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: _isFastMode
             ? Column(
@@ -557,7 +818,15 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                   const Text('Fast Checkout'),
                   if (_ticketsSoldCount > 0)
                     Text(
-                      '$_ticketsSoldCount sold • ${_printQueue.length} queued • $_printedCount printed',
+                      '$_ticketsSoldCount sold • $_queuedPrintCount queued • $_printedCount sent',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.normal,
+                      ),
+                    ),
+                  if (_syncReadyCount > 0 || _syncBlockedCount > 0)
+                    Text(
+                      'Sync: $_syncReadyCount ready • $_syncBlockedCount blocked',
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.normal,
@@ -566,7 +835,98 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                 ],
               )
             : const Text('Sell Ticket'),
-        actions: const [SyncIndicator()],
+        actions: [
+          IconButton(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _isManualSyncing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_upload),
+                if (_syncReadyCount > 0 && !_isManualSyncing)
+                  Positioned(
+                    right: -6,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$_syncReadyCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            tooltip: 'Sync ready tickets now',
+            onPressed: _syncReadyCount > 0 && !_isManualSyncing
+                ? _syncReadyTicketsNow
+                : null,
+          ),
+          IconButton(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.print),
+                if (_printFailedCount > 0)
+                  Positioned(
+                    right: -6,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$_printFailedCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            tooltip: 'Open print flow',
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Export unsynced tickets as JSON',
+            onPressed: _exportUnsyncedTickets,
+          ),
+          const SyncIndicator(),
+        ],
+      ),
+      endDrawer: PrintFlowDrawer(
+        jobs: _printQueue,
+        isProcessing: _printingCount > 0,
+        isSyncingReady: _isManualSyncing,
+        syncReadyCount: _syncReadyCount,
+        syncBlockedCount: _syncBlockedCount,
+        onSyncReadyNow: _syncReadyTicketsNow,
+        onRetryFailed: _retryFailedPrints,
+        onResendSelected: _resendSelectedPrints,
+        onClearCompleted: _clearSentPrints,
+        onToggleSelected: _togglePrintSelection,
       ),
       body: _isFastMode ? _buildFastModeUI() : _buildNormalModeUI(),
     );
@@ -664,7 +1024,7 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Print Queue Status (only show if active)
-            if (_printQueue.isNotEmpty || _printFailedCount > 0) ...[
+            if (_queuedPrintCount > 0 || _printFailedCount > 0) ...[
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -700,9 +1060,9 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                         Expanded(
                           child: Text(
                             _printingCount > 0
-                                ? 'Printing... ${_printQueue.length} in queue'
+                                ? 'Printing... $_queuedPrintCount in queue'
                                 : _printFailedCount > 0
-                                ? '$_printFailedCount print(s) failed - ${_printQueue.length} in queue'
+                                ? '$_printFailedCount print(s) failed - $_queuedPrintCount in queue'
                                 : 'All prints completed',
                             style: TextStyle(
                               fontSize: 12,
@@ -713,6 +1073,17 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Sync eligibility: $_syncReadyCount ready • $_syncBlockedCount blocked',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.blueGrey.shade700,
+                        ),
+                      ),
                     ),
                     if (_printFailedCount > 0 && _printingCount == 0) ...[
                       const SizedBox(height: 8),
@@ -881,7 +1252,12 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
                         _ticketsSoldCount = 0;
                         _printedCount = 0;
                         _printFailedCount = 0;
+                        _syncReadyCount = 0;
+                        _syncBlockedCount = 0;
+                        _printQueue.clear();
                       });
+                      _db.clearPrintJobs();
+                      _refreshSyncEligibilityCounts();
                       _showQuickMessage('Counter reset');
                     },
                     icon: const Icon(Icons.refresh),
@@ -904,24 +1280,3 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     return widget.ticketType.price * qty;
   }
 }
-
-/// Print job model
-class PrintJob {
-  final String ticketId;
-  final String customerName;
-  final int ticketNumber;
-  final int? sequentialId; // Local DB sequential ID for display
-  final int? totalTickets; // Total local tickets for 'X/Y' display
-  PrintStatus status;
-
-  PrintJob({
-    required this.ticketId,
-    required this.customerName,
-    required this.ticketNumber,
-    this.sequentialId,
-    this.totalTickets,
-    this.status = PrintStatus.queued,
-  });
-}
-
-enum PrintStatus { queued, printing, completed, failed }
