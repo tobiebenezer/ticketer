@@ -36,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoSync = true;
   bool _fastCheckoutMode = false;
   bool _autoPrint = true;
+  bool _validationSoundEnabled = true;
   int _validationPopupTimeoutSeconds = 5;
 
   @override
@@ -65,7 +66,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoSync = await _appSettings.getAutoSyncEnabled();
     final fastCheckoutMode = await _appSettings.getFastCheckoutMode();
     final autoPrint = await _appSettings.getAutoPrintEnabled();
-    final validationPopupTimeout = await _appSettings.getValidationPopupTimeoutSeconds();
+    final validationSoundEnabled = await _appSettings
+        .getValidationSoundEnabled();
+    final validationPopupTimeout = await _appSettings
+        .getValidationPopupTimeoutSeconds();
     final printerDelay = await _appSettings.getPrinterDelayMs();
 
     _printerDelayController.text = printerDelay.toString();
@@ -77,6 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoSync = autoSync;
       _fastCheckoutMode = fastCheckoutMode;
       _autoPrint = autoPrint;
+      _validationSoundEnabled = validationSoundEnabled;
       _validationPopupTimeoutSeconds = validationPopupTimeout;
     });
 
@@ -162,6 +167,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 'validation_popup_timeout':
         await _appSettings.setValidationPopupTimeoutSeconds(value as int);
         setState(() => _validationPopupTimeoutSeconds = value as int);
+        break;
+      case 'validation_sound':
+        await _appSettings.setValidationSoundEnabled(value);
+        setState(() => _validationSoundEnabled = value);
         break;
     }
   }
@@ -306,22 +315,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             contentPadding: EdgeInsets.zero,
             onChanged: (value) => _updateOfflineSetting('auto_print', value),
           ),
+          SwitchListTile(
+            title: const Text('Validation Sounds'),
+            subtitle: const Text('Play different sounds for pass and fail'),
+            value: _validationSoundEnabled,
+            contentPadding: EdgeInsets.zero,
+            onChanged: (value) =>
+                _updateOfflineSetting('validation_sound', value),
+          ),
           const SizedBox(height: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Validation Popup Timeout',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 4),
               Text(
                 'Auto-dismiss after $_validationPopupTimeoutSeconds seconds',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
               ),
               Slider(
                 value: _validationPopupTimeoutSeconds.toDouble(),
@@ -330,10 +347,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 divisions: 29,
                 label: '$_validationPopupTimeoutSeconds s',
                 onChanged: (value) {
-                  setState(() => _validationPopupTimeoutSeconds = value.round());
+                  setState(
+                    () => _validationPopupTimeoutSeconds = value.round(),
+                  );
                 },
                 onChangeEnd: (value) async {
-                  await _appSettings.setValidationPopupTimeoutSeconds(value.round());
+                  await _appSettings.setValidationPopupTimeoutSeconds(
+                    value.round(),
+                  );
                 },
               ),
             ],
@@ -344,16 +365,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Text(
                 'Printer Delay Between Tickets',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 4),
               Text(
                 'Delay in milliseconds between each ticket print',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
               ),
               const SizedBox(height: 8),
               Row(
@@ -367,7 +388,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         border: OutlineInputBorder(),
                         suffixText: 'ms',
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       onChanged: (value) async {
                         final delay = int.tryParse(value) ?? 1500;
                         await _appSettings.setPrinterDelayMs(delay);

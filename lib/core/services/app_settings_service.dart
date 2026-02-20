@@ -9,7 +9,9 @@ class AppSettingsService {
   static const String _kAutoSyncEnabled = 'auto_sync_enabled';
   static const String _kFastCheckoutMode = 'fast_checkout_mode';
   static const String _kAutoPrintEnabled = 'auto_print_enabled';
-  static const String _kValidationPopupTimeoutSeconds = 'validation_popup_timeout_seconds';
+  static const String _kValidationPopupTimeoutSeconds =
+      'validation_popup_timeout_seconds';
+  static const String _kValidationSoundEnabled = 'validation_sound_enabled';
   static const String _kPrinterDelayMs = 'printer_delay_ms';
 
   /// Get whether to prefer offline sales over API calls
@@ -75,6 +77,19 @@ class AppSettingsService {
     await prefs.setInt(_kValidationPopupTimeoutSeconds, value);
   }
 
+  /// Get whether validation sounds are enabled
+  /// Default: true
+  Future<bool> getValidationSoundEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kValidationSoundEnabled) ?? true;
+  }
+
+  /// Set validation sounds preference
+  Future<void> setValidationSoundEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kValidationSoundEnabled, value);
+  }
+
   /// Get printer delay between tickets in milliseconds
   /// Default: 1500ms (1.5 seconds)
   Future<int> getPrinterDelayMs() async {
@@ -108,7 +123,9 @@ class AppSettingsService {
       'auto_sync_enabled': await getAutoSyncEnabled(),
       'auto_print_enabled': await getAutoPrintEnabled(),
       'fast_checkout_mode': await getFastCheckoutMode(),
-      'validation_popup_timeout_seconds': await getValidationPopupTimeoutSeconds(),
+      'validation_popup_timeout_seconds':
+          await getValidationPopupTimeoutSeconds(),
+      'validation_sound_enabled': await getValidationSoundEnabled(),
       'printer_delay_ms': await getPrinterDelayMs(),
     };
   }
@@ -121,6 +138,7 @@ class AppSettingsService {
     await setAutoPrintEnabled(true);
     await setFastCheckoutMode(false);
     await setValidationPopupTimeoutSeconds(5);
+    await setValidationSoundEnabled(true);
     await setPrinterDelayMs(1500);
   }
 }

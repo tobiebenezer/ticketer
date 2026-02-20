@@ -261,16 +261,37 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 8) {
-      await db.execute(
-        'ALTER TABLE print_jobs ADD COLUMN purchase_batch_id TEXT',
+      await _addColumnIfNotExists(
+        db,
+        table: 'print_jobs',
+        column: 'purchase_batch_id',
+        type: 'TEXT',
       );
-      await db.execute(
-        'ALTER TABLE print_jobs ADD COLUMN purchase_index INTEGER',
+      await _addColumnIfNotExists(
+        db,
+        table: 'print_jobs',
+        column: 'purchase_index',
+        type: 'INTEGER',
       );
-      await db.execute(
-        'ALTER TABLE print_jobs ADD COLUMN purchase_quantity INTEGER',
+      await _addColumnIfNotExists(
+        db,
+        table: 'print_jobs',
+        column: 'purchase_quantity',
+        type: 'INTEGER',
       );
     }
+  }
+
+  Future<void> _addColumnIfNotExists(
+    Database db, {
+    required String table,
+    required String column,
+    required String type,
+  }) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = columns.any((c) => c['name'] == column);
+    if (exists) return;
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
   }
 
   // ==================== LOCAL TICKETS CRUD ====================

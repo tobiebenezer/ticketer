@@ -61,6 +61,7 @@ dependencies:
   cryptography: ^2.7.0
   connectivity_plus: ^6.1.4
   device_info_plus: ^11.2.0
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:
@@ -88,6 +89,8 @@ flutter:
   assets:
     - assets/images/Plateau_United.png
     - assets/images/event_art.jpg
+    - assets/sounds/validation_success.mp3
+    - assets/sounds/validation_failed.mp3
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

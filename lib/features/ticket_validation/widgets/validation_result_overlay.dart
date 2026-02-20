@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:myapp/core/services/app_settings_service.dart';
 import 'package:myapp/core/services/offline_validation_service.dart';
+import 'package:myapp/core/services/validation_sound_service.dart';
 
 /// A lightweight, non-blocking validation result overlay
 ///
@@ -59,6 +60,7 @@ class ValidationResultOverlay extends StatefulWidget {
 class _ValidationResultOverlayState extends State<ValidationResultOverlay>
     with SingleTickerProviderStateMixin {
   final AppSettingsService _settingsService = AppSettingsService();
+  final ValidationSoundService _soundService = ValidationSoundService.instance;
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   Timer? _autoDismissTimer;
@@ -83,6 +85,8 @@ class _ValidationResultOverlayState extends State<ValidationResultOverlay>
 
     // Start animation
     _animationController.forward();
+
+    _soundService.playForStatus(widget.result.status);
 
     // Load timeout and start auto-dismiss timer
     _loadTimeoutAndStartTimer();

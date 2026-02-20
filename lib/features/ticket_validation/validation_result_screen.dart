@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:myapp/core/services/offline_validation_service.dart';
+import 'package:myapp/core/services/validation_sound_service.dart';
 import 'package:myapp/data/models/ticket_validation_result.dart';
 import 'package:myapp/data/services/ticket_api.dart';
 
@@ -13,6 +15,7 @@ class ValidationResultScreen extends StatefulWidget {
 
 class _ValidationResultScreenState extends State<ValidationResultScreen> {
   final TicketApi _ticketApi = TicketApi();
+  final ValidationSoundService _soundService = ValidationSoundService.instance;
   TicketValidationResult? _result;
   bool _isLoading = true;
   bool _isMarking = false;
@@ -46,14 +49,22 @@ class _ValidationResultScreenState extends State<ValidationResultScreen> {
 
         // Mark the ticket as entered immediately
         final markResult = await _ticketApi.markTicket(ref);
+        _soundService.playForStatus(
+          _isApiSuccess(markResult)
+              ? ValidationStatus.valid
+              : ValidationStatus.invalid,
+        );
         setState(() {
           _result = markResult;
           _isLoading = false;
           _isMarking = false;
-          _validatedRef = markResult.type.toLowerCase() == 'success' ? ref : null;
+          _validatedRef = markResult.type.toLowerCase() == 'success'
+              ? ref
+              : null;
         });
       } else {
         // Ticket is invalid or already used, just show the validation result
+        _soundService.playForStatus(ValidationStatus.invalid);
         setState(() {
           _result = validateResult;
           _isLoading = false;
@@ -68,6 +79,10 @@ class _ValidationResultScreenState extends State<ValidationResultScreen> {
         _validatedRef = null;
       });
     }
+  }
+
+  bool _isApiSuccess(TicketValidationResult result) {
+    return result.type.toLowerCase() == 'success';
   }
 
   // Keep this method in case it's needed in the future

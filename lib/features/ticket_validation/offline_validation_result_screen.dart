@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/core/services/offline_validation_service.dart';
+import 'package:myapp/core/services/validation_sound_service.dart';
 import 'package:myapp/data/services/offline_event_service.dart';
 import 'package:myapp/data/services/sync_service.dart';
 
@@ -31,6 +32,7 @@ class _OfflineValidationResultScreenState
     with SingleTickerProviderStateMixin {
   final OfflineValidationService _validationService =
       OfflineValidationService();
+  final ValidationSoundService _soundService = ValidationSoundService.instance;
   final SyncService _syncService = SyncService();
   final OfflineEventService _offlineEventService = OfflineEventService();
 
@@ -90,14 +92,21 @@ class _OfflineValidationResultScreenState
         _isValidating = false;
       });
 
+      _soundService.playForStatus(result.status);
+
       // Trigger animation
       _animationController.forward();
 
       // Auto-sync if there are pending validations
       if (result.isSuccess) {
-        _syncService.syncNow().catchError((_) {
-          // Silent fail - sync will retry later
-        });
+        _syncService.syncNow().then(
+          (_) {
+            // no-op
+          },
+          onError: (_) {
+            // Silent fail - sync will retry later
+          },
+        );
       }
     } catch (e) {
       setState(() {
@@ -324,7 +333,10 @@ class _OfflineValidationResultScreenState
             ),
             const SizedBox(height: 12),
             _buildDetailRow('Customer', result.customerName ?? 'N/A'),
-            _buildDetailRow('Match', _matchName ?? data['matche_id']?.toString() ?? 'N/A'),
+            _buildDetailRow(
+              'Match',
+              _matchName ?? data['matche_id']?.toString() ?? 'N/A',
+            ),
             _buildDetailRow(
               'Ticket Type',
               data['ticket_types_id']?.toString() ?? 'N/A',

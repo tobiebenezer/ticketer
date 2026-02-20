@@ -129,11 +129,11 @@ class SyncApi {
   }
 
   /// Get all tickets for a match for offline validation.
-  /// 
+  ///
   /// This is used to download tickets from other devices for offline validation.
   Future<MatchTicketsResult> getMatchTickets(int matchId) async {
     try {
-      final response = await _dio.get('/match-validaton/$matchId/tickets');
+      final response = await _dio.get('/match-validation/$matchId/tickets');
 
       if (response.statusCode == 200) {
         final data = response.data as Map<String, dynamic>;
@@ -142,6 +142,18 @@ class SyncApi {
 
       throw Exception('Failed to get match tickets: ${response.statusCode}');
     } on DioException catch (e) {
+      // Backward-compatible fallback for servers still using legacy typo route.
+      if (e.response?.statusCode == 404) {
+        try {
+          final legacyResponse = await _dio.get(
+            '/match-validaton/$matchId/tickets',
+          );
+          if (legacyResponse.statusCode == 200) {
+            final data = legacyResponse.data as Map<String, dynamic>;
+            return MatchTicketsResult.fromJson(data);
+          }
+        } catch (_) {}
+      }
       throw Exception('Failed to get match tickets: ${e.message}');
     }
   }
@@ -373,10 +385,7 @@ class MatchTicket {
   final String ticketId;
   final String referenceNo;
 
-  MatchTicket({
-    required this.ticketId,
-    required this.referenceNo,
-  });
+  MatchTicket({required this.ticketId, required this.referenceNo});
 
   factory MatchTicket.fromJson(Map<String, dynamic> json) {
     return MatchTicket(

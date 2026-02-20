@@ -537,9 +537,14 @@ class _TicketValidatorScreenState extends State<TicketValidatorScreen> {
 
       // Trigger background sync for successful validations
       if (result.isSuccess) {
-        _syncService.syncNow().catchError((_) {
-          // Silent fail - sync will retry later
-        });
+        _syncService.syncNow().then(
+          (_) {
+            // no-op
+          },
+          onError: (_) {
+            // Silent fail - sync will retry later
+          },
+        );
       }
     } catch (e) {
       _showErrorSnackBar('Validation error: $e');
@@ -595,15 +600,16 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
     _loadEvents();
   }
 
-  Future<void> _loadEvents() async {
+  Future<void> _loadEvents({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
-      // Use cached events from OfflineEventService (already loaded in HomeScreen)
-      final events = await widget.offlineEventService.getEvents();
+      final events = forceRefresh
+          ? await widget.offlineEventService.refreshEvents()
+          : await widget.offlineEventService.getEvents();
       if (mounted) {
         setState(() {
           _events = events;
@@ -711,6 +717,21 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
                       ),
                       const Spacer(),
                       IconButton(
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh),
+                        tooltip: 'Refresh events',
+                        onPressed: _isLoading
+                            ? null
+                            : () => _loadEvents(forceRefresh: true),
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.close),
                         onPressed: () => Navigator.pop(context),
                       ),
@@ -758,50 +779,58 @@ class _EventSelectionModalState extends State<_EventSelectionModal> {
                         child: Text('No events available'),
                       ),
                     )
-                  : ListView.builder(
-                      controller: scrollController,
-                      itemCount: _events!.length,
-                      itemBuilder: (context, index) {
-                        final event = _events![index];
-                        final isDownloading = _downloadingEventId == event.id;
+                  : RefreshIndicator(
+                      triggerMode: RefreshIndicatorTriggerMode.anywhere,
+                      onRefresh: () => _loadEvents(forceRefresh: true),
+                      child: ListView.builder(
+                        controller: scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: _events!.length,
+                        itemBuilder: (context, index) {
+                          final event = _events![index];
+                          final isDownloading = _downloadingEventId == event.id;
 
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.primaryContainer,
-                            child: Icon(
-                              Icons.event,
-                              color: Theme.of(
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Theme.of(
                                 context,
-                              ).colorScheme.onPrimaryContainer,
+                              ).colorScheme.primaryContainer,
+                              child: Icon(
+                                Icons.event,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onPrimaryContainer,
+                              ),
                             ),
-                          ),
-                          title: Text(
-                            event.name,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Text(
-                            event.venue ?? 'No venue',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          trailing: isDownloading
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                            title: Text(
+                              event.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              event.venue,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            trailing: isDownloading
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : IconButton(
+                                    icon: const Icon(Icons.download),
+                                    onPressed: () =>
+                                        _downloadEventTickets(event),
                                   ),
-                                )
-                              : IconButton(
-                                  icon: const Icon(Icons.download),
-                                  onPressed: () => _downloadEventTickets(event),
-                                ),
-                          onTap: isDownloading
-                              ? null
-                              : () => _downloadEventTickets(event),
-                        );
-                      },
+                            onTap: isDownloading
+                                ? null
+                                : () => _downloadEventTickets(event),
+                          );
+                        },
+                      ),
                     ),
             ),
           ],
