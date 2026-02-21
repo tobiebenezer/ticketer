@@ -69,6 +69,7 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
   int _ticketsSoldCount = 0;
   final List<PrintFlowJob> _printQueue = [];
   int _printingCount = 0;
+  bool _isProcessingPrintQueue = false;
   int _printedCount = 0;
   int _printFailedCount = 0;
   int _syncReadyCount = 0;
@@ -485,94 +486,141 @@ class _SellTicketScreenState extends State<SellTicketScreen> {
     _processPrintQueue();
   }
 
-  /// Process print queue sequentially
+  /// Process print queue sequentially.
+  /// For Bluetooth: connects ONCE before the loop and reuses the connection
+  /// for all queued jobs — avoids per-ticket reconnect lag.
   Future<void> _processPrintQueue() async {
-    // If already printing, don't start another process
-    if (_printingCount > 0) return;
+    if (_printingCount > 0 || _isProcessingPrintQueue) return;
+    _isProcessingPrintQueue = true;
 
-    while (true) {
-      final nextIndex = _printQueue.indexWhere(
-        (job) => job.status == PrintFlowStatus.queued,
-      );
-      if (nextIndex == -1) break;
+    try {
+      final printPath = await _printService.getPreferredPrintPath();
+      final isBluetooth = printPath == 'bluetooth';
 
-      final job = _printQueue[nextIndex];
-
-      if (!mounted) break;
-
-      setState(() {
-        _printingCount++;
-        job.status = PrintFlowStatus.sending;
-        job.attemptCount++;
-        job.updatedAt = DateTime.now();
-      });
-      await _persistJob(job);
-
-      try {
-        final result = await _printService.printTicketWithResult(
-          eventName: '${widget.event.homeTeam} vs ${widget.event.awayTeam}',
-          ticketType: widget.ticketType.name,
-          price: widget.ticketType.price,
-          ticketNumber: job.effectiveTicketNumber,
-          totalTickets: job.effectiveTotalTickets,
-          ticketCode: job.ticketId,
-          validationUrl: job.ticketId,
-          transactionId: job.ticketId,
-          customerName: job.customerName.isEmpty ? null : job.customerName,
-          ticketId: job.displayTicketId,
-        );
-
-        if (mounted) {
-          setState(() {
-            if (result.isSent) {
-              job.status = PrintFlowStatus.sent;
-              job.lastError = null;
-              job.pdfPath = null;
-            } else if (result.isPdfFallback) {
-              job.status = PrintFlowStatus.pdfFallback;
-              job.lastError = 'Printer unavailable, PDF saved';
-              job.pdfPath = result.pdfPath;
-            } else {
-              job.status = PrintFlowStatus.failed;
-              job.lastError = result.error ?? 'Failed to send to printer';
-            }
-            _printingCount--;
-            job.updatedAt = DateTime.now();
-          });
+      // For BT: establish connection once before processing any jobs.
+      bool btConnected = false;
+      if (isBluetooth) {
+        btConnected = await _printService.ensureBluetoothConnected();
+        if (!btConnected) {
+          final reason =
+              _printService.lastBluetoothError ??
+              'Bluetooth printer not connected. Check selected printer and permissions.';
+          _showQuickMessage(reason, isError: true);
+          return;
         }
-        await _persistJob(job);
-        _recalculatePrintCounters();
-        _refreshSyncEligibilityCounts();
+      }
 
-        // Small delay between prints
-        if (result.isSent) {
-          await Future.delayed(const Duration(milliseconds: 1000));
-        } else {
-          _showQuickMessage(
-            result.isPdfFallback
-                ? 'Printer unavailable. Ticket saved as PDF.'
-                : 'Print failed - check printer',
-            isError: true,
-          );
+      final eventName = '${widget.event.homeTeam} vs ${widget.event.awayTeam}';
+
+      while (true) {
+        final nextIndex = _printQueue.indexWhere(
+          (job) => job.status == PrintFlowStatus.queued,
+        );
+        if (nextIndex == -1) break;
+
+        final job = _printQueue[nextIndex];
+
+        if (!mounted) break;
+
+        setState(() {
+          _printingCount++;
+          job.status = PrintFlowStatus.sending;
+          job.attemptCount++;
+          job.updatedAt = DateTime.now();
+        });
+        await _persistJob(job);
+
+        try {
+          PrintDispatchResult result;
+
+          if (isBluetooth && btConnected) {
+            // Fast path: reuse existing BT connection — no reconnect overhead
+            result = await _printService.printSingleTicketBluetooth(
+              eventName: eventName,
+              ticketType: widget.ticketType.name,
+              price: widget.ticketType.price,
+              ticketNumber: job.effectiveTicketNumber,
+              totalTickets: job.effectiveTotalTickets,
+              ticketCode: job.ticketId,
+              validationUrl: job.ticketId,
+              ticketId: job.displayTicketId,
+              customerName: job.customerName.isEmpty ? null : job.customerName,
+              venue: widget.event.venue,
+            );
+          } else {
+            // WiFi / system path (or BT fallback if connect failed)
+            result = await _printService.printTicketWithResult(
+              eventName: eventName,
+              ticketType: widget.ticketType.name,
+              price: widget.ticketType.price,
+              ticketNumber: job.effectiveTicketNumber,
+              totalTickets: job.effectiveTotalTickets,
+              ticketCode: job.ticketId,
+              validationUrl: job.ticketId,
+              transactionId: job.ticketId,
+              customerName: job.customerName.isEmpty ? null : job.customerName,
+              ticketId: job.displayTicketId,
+            );
+          }
+
+          if (mounted) {
+            setState(() {
+              if (result.isSent) {
+                job.status = PrintFlowStatus.sent;
+                job.lastError = null;
+                job.pdfPath = null;
+              } else if (result.isPdfFallback) {
+                job.status = PrintFlowStatus.pdfFallback;
+                job.lastError = 'Printer unavailable, PDF saved';
+                job.pdfPath = result.pdfPath;
+              } else {
+                job.status = PrintFlowStatus.failed;
+                job.lastError = result.error ?? 'Failed to send to printer';
+              }
+              _printingCount--;
+              job.updatedAt = DateTime.now();
+            });
+          }
+          await _persistJob(job);
+          _recalculatePrintCounters();
+          _refreshSyncEligibilityCounts();
+
+          if (result.isSent) {
+            // Short inter-ticket pause — lets the printer finish cutting/feeding
+            // before the next ESC/POS command stream arrives.
+            // Configurable in Settings; default 500ms is safe for most printers.
+            final delayMs = await _printService.getInterTicketDelayMs();
+            if (delayMs > 0) {
+              await Future.delayed(Duration(milliseconds: delayMs));
+            }
+          } else {
+            _showQuickMessage(
+              result.isPdfFallback
+                  ? 'Printer unavailable. Ticket saved as PDF.'
+                  : 'Print failed - check printer',
+              isError: true,
+            );
+            break;
+          }
+        } catch (e) {
+          if (mounted) {
+            setState(() {
+              job.status = PrintFlowStatus.failed;
+              _printingCount--;
+              job.lastError = e.toString();
+              job.updatedAt = DateTime.now();
+            });
+          }
+          await _persistJob(job);
+          _recalculatePrintCounters();
+          _refreshSyncEligibilityCounts();
+          debugPrint('Print failed: $e');
+          debugPrint('Failed ticket ID: ${job.ticketId}');
           break;
         }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            job.status = PrintFlowStatus.failed;
-            _printingCount--;
-            job.lastError = e.toString();
-            job.updatedAt = DateTime.now();
-          });
-        }
-        await _persistJob(job);
-        _recalculatePrintCounters();
-        _refreshSyncEligibilityCounts();
-        debugPrint('Print failed: $e');
-        debugPrint('Failed ticket ID: ${job.ticketId}');
-        // Stop processing on error
-        break;
       }
+    } finally {
+      _isProcessingPrintQueue = false;
     }
   }
 

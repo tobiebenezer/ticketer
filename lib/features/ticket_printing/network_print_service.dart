@@ -75,11 +75,9 @@ class NetworkPrintService {
           ? kPaperWidth58mm
           : kPaperWidth80mm;
 
-      // Pre-load logo once before loop
-      final logoBytes = await _loadLogoBytes();
-      print(
-        'Logo loaded: ${logoBytes != null ? '${logoBytes.length} bytes' : 'null'}',
-      );
+      // Pre-load and decode logo once before loop — avoids repeated PNG decode
+      final logoBytes = await loadLogoBytes();
+      final logoImage = logoBytes != null ? img.decodeImage(logoBytes) : null;
 
       for (int i = 0; i < numberOfTickets; i++) {
         final code = ticketCodes[i];
@@ -95,7 +93,7 @@ class NetworkPrintService {
             '${kBaseUrl.replaceAll('/api', '')}/validate/$code';
 
         // Generate ticket as image
-        final ticketImageBytes = await _generateTicketImage(
+        final ticketImageBytes = await generateTicketImage(
           eventName: eventName,
           ticketType: ticketType,
           price: price,
@@ -107,7 +105,7 @@ class NetworkPrintService {
           customerEmail: customerEmail,
           customerPhone: customerPhone,
           paperWidthPx: paperWidthPx,
-          logoImage: logoBytes != null ? img.decodeImage(logoBytes) : null,
+          logoImage: logoImage,
           venue: venue,
           ticketId: ticketIds != null && i < ticketIds.length
               ? ticketIds[i]
@@ -149,7 +147,7 @@ class NetworkPrintService {
   }
 
   /// Generate ticket as image from Flutter widget
-  Future<Uint8List?> _generateTicketImage({
+  Future<Uint8List?> generateTicketImage({
     required String eventName,
     required String ticketType,
     required double price,
@@ -224,6 +222,11 @@ class NetworkPrintService {
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     final isWide = paperWidthPx > 400;
+    final displayId = (ticketId != null)
+        ? ticketId.toString()
+        : transactionId.trim().isEmpty
+        ? '-'
+        : transactionId;
 
     return Container(
       width: paperWidthPx,
@@ -266,18 +269,19 @@ class NetworkPrintService {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  if (ticketId != null)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        'ID: $ticketId',
-                        style: TextStyle(
-                          fontSize: isWide ? 12 : 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.right,
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'ID: $displayId',
+                      style: TextStyle(
+                        fontSize: isWide ? 12 : 10,
+                        fontWeight: FontWeight.bold,
                       ),
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                  ),
 
                   // Space for logo (will be composited later)
                   const SizedBox(height: 100),
@@ -423,44 +427,40 @@ class NetworkPrintService {
                     ],
                   ),
 
-                  // SizedBox(height: isWide ? 12 : 10),
+                  SizedBox(height: isWide ? 12 : 10),
 
-                  // Customer Info
-                  // Container(
-                  //   width: double.infinity,
-                  //   padding: EdgeInsets.all(isWide ? 12 : 10),
-                  //   decoration: BoxDecoration(
-                  //     border: Border.all(color: Colors.black, width: 1.5),
-                  //     borderRadius: BorderRadius.circular(4),
-                  //   ),
-                  //   child: Column(
-                  //     crossAxisAlignment: CrossAxisAlignment.start,
-                  //     children: [
-                  //       Text(
-                  //         'TICKET HOLDER',
-                  //         style: TextStyle(
-                  //           fontSize: isWide ? 10 : 9,
-                  //           fontWeight: FontWeight.bold,
-                  //           color: Colors.grey[600],
-                  //         ),
-                  //       ),
-                  //       Text(
-                  //         (customerName ?? 'GUEST').toUpperCase(),
-                  //         style: TextStyle(
-                  //           fontSize: isWide ? 16 : 14,
-                  //           fontWeight: FontWeight.w800,
-                  //         ),
-                  //         maxLines: 1,
-                  //         overflow: TextOverflow.ellipsis,
-                  //       ),
-                  //       if (customerPhone != null && customerPhone.isNotEmpty)
-                  //         Text(
-                  //           customerPhone,
-                  //           style: TextStyle(fontSize: isWide ? 13 : 12),
-                  //         ),
-                  //     ],
-                  //   ),
-                  // ),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(isWide ? 12 : 10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black, width: 1.5),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'CUSTOMER',
+                          style: TextStyle(
+                            fontSize: isWide ? 10 : 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          (customerName == null || customerName.trim().isEmpty)
+                              ? 'GUEST'
+                              : customerName.trim().toUpperCase(),
+                          style: TextStyle(
+                            fontSize: isWide ? 16 : 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -715,7 +715,7 @@ class NetworkPrintService {
   }
 
   /// Load logo as bytes for thermal printing
-  Future<Uint8List?> _loadLogoBytes() async {
+  Future<Uint8List?> loadLogoBytes() async {
     try {
       final data = await rootBundle.load('assets/images/Plateau_United.png');
       return data.buffer.asUint8List();

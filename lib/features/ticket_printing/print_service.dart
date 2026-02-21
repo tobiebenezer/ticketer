@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
@@ -7,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:esc_pos_utils_lts/esc_pos_utils_lts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:myapp/core/constants/network_constants.dart';
 import 'package:myapp/core/services/app_settings_service.dart';
@@ -40,9 +40,12 @@ class PrintDispatchResult {
 class PrintService {
   final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
   final AppSettingsService _settingsService = AppSettingsService();
+  String? _lastBluetoothError;
 
-  // Thermal printer paper width in pixels (58mm ≈ 384px)
-  static const double kPaperWidthPx = 384.0;
+  static const String _kBluetoothPrintMode = 'kBluetoothPrintMode';
+  static const String _kBluetoothPaperWidthMm = 'kBluetoothPaperWidthMm';
+
+  String? get lastBluetoothError => _lastBluetoothError;
 
   // --- 1. PRINT SINGLE TICKET (Direct Print) ---
   Future<PrintDispatchResult> printTicketWithResult({
@@ -177,6 +180,13 @@ class PrintService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('kPreferredPrintPath') ?? 'system';
   }
+
+  /// Public accessor for the preferred print path (wifi / bluetooth / system).
+  Future<String> getPreferredPrintPath() => _getPreferredPrintPath();
+
+  /// Inter-ticket delay in ms for the queue processor.
+  /// Uses the same configurable value as the batch printer (default 500ms).
+  Future<int> getInterTicketDelayMs() => _settingsService.getPrinterDelayMs();
 
   Future<bool> printTicket({
     required String eventName,
@@ -645,6 +655,8 @@ class PrintService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final preferredPath = prefs.getString('kPreferredPrintPath') ?? 'system';
+      final preferredBtAddress =
+          deviceAddress ?? prefs.getString('kPreferredBtAddress');
 
       // 1. System Print (Direct) - Only on desktop platforms
       if (preferredPath == 'system') {
@@ -721,12 +733,20 @@ class PrintService {
         }
       }
 
-      // 3. Bluetooth Printer (fallback on mobile, or when selected)
+      // 3. Bluetooth Printer (selected path, or fallback from Wi-Fi on mobile
+      // when a preferred BT printer is configured)
+      // Connect ONCE and print all tickets in a single session to avoid
+      // per-ticket reconnect overhead which causes significant lag.
       if (preferredPath == 'bluetooth' ||
+          (preferredPath == 'wifi' &&
+              (Platform.isAndroid || Platform.isIOS) &&
+              preferredBtAddress != null &&
+              preferredBtAddress.isNotEmpty) ||
           (preferredPath == 'system' &&
               (Platform.isAndroid || Platform.isIOS))) {
         if (await _requestBluetoothPermissions()) {
-          if (await _connectToPrinter(deviceAddress: deviceAddress)) {
+          if (await _connectToPrinter(deviceAddress: preferredBtAddress)) {
+            final delayMs = await _settingsService.getPrinterDelayMs();
             for (int i = 0; i < numberOfTickets; i++) {
               final displayTicketNumber =
                   ticketNumbers != null && i < ticketNumbers.length
@@ -736,7 +756,7 @@ class PrintService {
                   ticketTotals != null && i < ticketTotals.length
                   ? ticketTotals[i]
                   : numberOfTickets;
-              final success = await printTicket(
+              final success = await _printTicketViaBluetooth(
                 eventName: eventName,
                 ticketType: ticketType,
                 price: price,
@@ -745,24 +765,14 @@ class PrintService {
                 ticketCode: ticketCodes[i],
                 validationUrl:
                     '${kBaseUrl.replaceAll('/api', '')}/validate/${ticketCodes[i]}',
-                transactionId: transactionId,
-                customerName: customerName,
-                customerEmail: customerEmail,
-                customerPhone: customerPhone,
-                venue: venue,
                 ticketId: ticketIds != null && i < ticketIds.length
                     ? ticketIds[i]
                     : null,
-                matchId: matchIds != null && i < matchIds.length
-                    ? matchIds[i]
-                    : null,
-                ticketTypeId: ticketTypeIds != null && i < ticketTypeIds.length
-                    ? ticketTypeIds[i]
-                    : null,
+                customerName: customerName,
+                venue: venue,
               );
               if (!success) return false;
               if (i < numberOfTickets - 1) {
-                final delayMs = await _settingsService.getPrinterDelayMs();
                 await Future.delayed(Duration(milliseconds: delayMs));
               }
             }
@@ -795,6 +805,264 @@ class PrintService {
     } catch (e) {
       print('Error in printMultipleTickets: $e');
       return false;
+    }
+  }
+
+  Future<bool> _printTicketViaBluetooth({
+    required String eventName,
+    required String ticketType,
+    required double price,
+    required int ticketNumber,
+    required int totalTickets,
+    required String ticketCode,
+    required String validationUrl,
+    int? ticketId,
+    String? customerName,
+    String? venue,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final btMode = prefs.getString(_kBluetoothPrintMode) ?? 'image';
+    final paperWidthMm = await _getBluetoothPaperWidthMm();
+    final paperWidthPx = paperWidthMm == 80 ? 576.0 : 384.0;
+
+    Future<bool> printTextFallback() async {
+      try {
+        await _printer.printNewLine();
+        await _printer.printCustom(eventName.toUpperCase(), 2, 1);
+        await _printer.printCustom(ticketType.toUpperCase(), 1, 1);
+        await _printer.printCustom('NGN ${price.toStringAsFixed(0)}', 2, 1);
+        await _printer.printCustom('Ticket $ticketNumber/$totalTickets', 1, 1);
+        if (customerName != null && customerName.trim().isNotEmpty) {
+          await _printer.printCustom(
+            'Customer: ${customerName.trim().toUpperCase()}',
+            0,
+            0,
+          );
+        }
+        if (venue != null && venue.isNotEmpty) {
+          await _printer.printCustom(venue, 0, 1);
+        }
+        await _printer.printNewLine();
+        await _printer.printCustom('Code: ${ticketCode.toUpperCase()}', 1, 0);
+        await _printer.printQRcode(validationUrl, 220, 220, 1);
+        await _printer.printNewLine();
+        try {
+          await _printer.paperCut();
+        } catch (_) {}
+        return true;
+      } catch (e) {
+        print('Bluetooth plain-text fallback failed: $e');
+        return false;
+      }
+    }
+
+    if (btMode == 'text_only') {
+      return await printTextFallback();
+    }
+
+    try {
+      // Render the same ticket image used by the WiFi/PDF path so all three
+      // print methods produce an identical design.
+      final netService = NetworkPrintService();
+      final logoBytes = await netService.loadLogoBytes();
+      final logoImage = logoBytes != null ? img.decodeImage(logoBytes) : null;
+
+      final imageBytes = await netService.generateTicketImage(
+        eventName: eventName,
+        ticketType: ticketType,
+        price: price,
+        ticketNumber: ticketNumber,
+        totalTickets: totalTickets,
+        validationUrl: validationUrl,
+        transactionId: ticketCode,
+        customerName: customerName,
+        ticketId: ticketId,
+        paperWidthPx: paperWidthPx,
+        logoImage: logoImage,
+        venue: venue,
+      );
+
+      if (imageBytes == null) {
+        return await printTextFallback();
+      }
+
+      try {
+        final decoded = img.decodeImage(imageBytes);
+        if (decoded == null) {
+          return await printTextFallback();
+        }
+
+        final printed = await _printImageViaBluetoothEscPos(
+          decoded,
+          paperWidthMm: paperWidthMm,
+        );
+        if (!printed) {
+          return await printTextFallback();
+        }
+        return true;
+      } catch (e) {
+        print('Bluetooth image print failed, trying text fallback: $e');
+        return await printTextFallback();
+      }
+    } catch (e) {
+      print('Bluetooth print failed: $e');
+      return await printTextFallback();
+    }
+  }
+
+  Future<bool> _printImageViaBluetoothEscPos(
+    img.Image source, {
+    required int paperWidthMm,
+  }) async {
+    try {
+      final profile = await CapabilityProfile.load();
+      final paperSize = paperWidthMm == 80 ? PaperSize.mm80 : PaperSize.mm58;
+      final targetWidth = paperWidthMm == 80 ? 576 : 384;
+      final generator = Generator(paperSize, profile);
+
+      final prepared = _prepareBluetoothImage(source, targetWidth: targetWidth);
+      final slices = _splitImageByHeight(prepared, maxHeight: 192);
+
+      final didReset = await _sendEscPosChunked(
+        generator.reset(),
+        chunkSize: 256,
+        interChunkDelayMs: 20,
+      );
+      if (!didReset) return false;
+
+      for (final slice in slices) {
+        final bytes = generator.imageRaster(
+          slice,
+          align: PosAlign.center,
+          imageFn: PosImageFn.bitImageRaster,
+          highDensityHorizontal: true,
+          highDensityVertical: true,
+        );
+
+        final ok = await _sendEscPosChunked(
+          bytes,
+          chunkSize: 256,
+          interChunkDelayMs: 25,
+        );
+        if (!ok) return false;
+
+        await Future.delayed(const Duration(milliseconds: 120));
+      }
+
+      final fed = await _sendEscPosChunked(
+        generator.feed(3),
+        chunkSize: 128,
+        interChunkDelayMs: 10,
+      );
+      if (!fed) return false;
+
+      await Future.delayed(const Duration(milliseconds: 250));
+
+      final cut = await _sendEscPosChunked(
+        [0x1D, 0x56, 0x00],
+        chunkSize: 128,
+        interChunkDelayMs: 10,
+      );
+      return cut;
+    } catch (e) {
+      print('ESC/POS bluetooth image print failed: $e');
+      return false;
+    }
+  }
+
+  img.Image _prepareBluetoothImage(
+    img.Image source, {
+    required int targetWidth,
+  }) {
+    final base = img.Image(width: source.width, height: source.height);
+    img.fill(base, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(base, source, dstX: 0, dstY: 0);
+
+    img.Image resized = base;
+    if (base.width > targetWidth) {
+      final ratio = targetWidth / base.width;
+      final targetHeight = (base.height * ratio).round();
+      resized = img.copyResize(
+        base,
+        width: targetWidth,
+        height: targetHeight,
+        interpolation: img.Interpolation.average,
+      );
+    }
+
+    final paddedWidth = ((resized.width + 7) ~/ 8) * 8;
+    if (paddedWidth == resized.width) {
+      return resized;
+    }
+
+    final padded = img.Image(width: paddedWidth, height: resized.height);
+    img.fill(padded, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(padded, resized, dstX: 0, dstY: 0);
+    return padded;
+  }
+
+  List<img.Image> _splitImageByHeight(
+    img.Image image, {
+    required int maxHeight,
+  }) {
+    if (image.height <= maxHeight) {
+      return [image];
+    }
+
+    final slices = <img.Image>[];
+    int y = 0;
+    while (y < image.height) {
+      final remaining = image.height - y;
+      final h = remaining > maxHeight ? maxHeight : remaining;
+      slices.add(
+        img.copyCrop(image, x: 0, y: y, width: image.width, height: h),
+      );
+      y += h;
+    }
+    return slices;
+  }
+
+  Future<bool> _sendEscPosChunked(
+    List<int> bytes, {
+    required int chunkSize,
+    required int interChunkDelayMs,
+  }) async {
+    try {
+      if (bytes.isEmpty) return true;
+
+      int offset = 0;
+      while (offset < bytes.length) {
+        final end = (offset + chunkSize < bytes.length)
+            ? offset + chunkSize
+            : bytes.length;
+        final chunk = Uint8List.fromList(bytes.sublist(offset, end));
+        await _printer.writeBytes(chunk);
+        offset = end;
+
+        if (offset < bytes.length && interChunkDelayMs > 0) {
+          await Future.delayed(Duration(milliseconds: interChunkDelayMs));
+        }
+      }
+
+      return true;
+    } catch (e) {
+      print('Chunked ESC/POS write failed: $e');
+      return false;
+    }
+  }
+
+  Future<int> _getBluetoothPaperWidthMm() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final configured = prefs.getInt(_kBluetoothPaperWidthMm);
+      if (configured == 52 || configured == 80) {
+        return configured!;
+      }
+
+      // Default to 52mm for bigger Bluetooth receipts.
+      return 52;
+    } catch (_) {
+      return 52;
     }
   }
 
@@ -978,32 +1246,105 @@ class PrintService {
   Future<bool> _requestBluetoothPermissions() async {
     try {
       final result = await [
+        Permission.bluetooth,
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
       ].request();
-      return (result[Permission.bluetoothScan]?.isGranted ?? true) &&
-          (result[Permission.bluetoothConnect]?.isGranted ?? true);
+
+      final scanGranted = result[Permission.bluetoothScan]?.isGranted ?? true;
+      final connectGranted =
+          result[Permission.bluetoothConnect]?.isGranted ?? true;
+      final legacyBluetoothGranted =
+          result[Permission.bluetooth]?.isGranted ?? true;
+      final locationGranted =
+          result[Permission.locationWhenInUse]?.isGranted ?? true;
+
+      if (!scanGranted || !connectGranted || !legacyBluetoothGranted) {
+        final missing = <String>[];
+        if (!scanGranted) missing.add('BLUETOOTH_SCAN');
+        if (!connectGranted) missing.add('BLUETOOTH_CONNECT');
+        if (!legacyBluetoothGranted) missing.add('BLUETOOTH');
+        _lastBluetoothError =
+            'Bluetooth permissions missing: ${missing.join(', ')}';
+        return false;
+      }
+
+      // Some devices still require location permission for bonded device queries.
+      if (!locationGranted) {
+        _lastBluetoothError =
+            'Location permission missing (required on some Android devices)';
+      } else {
+        _lastBluetoothError = null;
+      }
+
+      return true;
     } catch (_) {
+      _lastBluetoothError = 'Failed to request Bluetooth permissions';
       return false;
     }
   }
 
   Future<bool> _connectToPrinter({String? deviceAddress}) async {
     try {
-      List<BluetoothDevice> devices = await _printer.getBondedDevices();
-      if (devices.isEmpty) return false;
+      if (deviceAddress == null || deviceAddress.isEmpty) {
+        _lastBluetoothError =
+            'No Bluetooth printer selected. Please select a printer in Settings.';
+        return false;
+      }
 
-      BluetoothDevice target = (deviceAddress != null)
-          ? devices.firstWhere(
-              (d) => (d.address ?? '') == deviceAddress,
-              orElse: () => devices.first,
-            )
-          : devices.first;
+      List<BluetoothDevice> devices = await _printer.getBondedDevices();
+      if (devices.isEmpty) {
+        _lastBluetoothError =
+            'No bonded Bluetooth printers found. Pair printer in Android Bluetooth settings first.';
+        return false;
+      }
+
+      final matches = devices.where((d) => (d.address ?? '') == deviceAddress);
+      if (matches.isEmpty) {
+        _lastBluetoothError =
+            'Selected printer ($deviceAddress) is not bonded or not available.';
+        print('Selected Bluetooth printer not found: $deviceAddress');
+        return false;
+      }
+      final target = matches.first;
+
+      // If already connected, check if it's the same device — reuse if so.
+      // This avoids the expensive disconnect/reconnect cycle between tickets.
+      final alreadyConnected = await _printer.isConnected == true;
+      if (alreadyConnected) {
+        final sameDevice = await _printer.isDeviceConnected(target) == true;
+        if (sameDevice) {
+          _lastBluetoothError = null;
+          return true;
+        }
+        // Different device connected — disconnect first
+        try {
+          await _printer.disconnect();
+          await Future.delayed(const Duration(milliseconds: 200));
+        } catch (_) {}
+      }
 
       await _printer.connect(target);
-      await Future.delayed(const Duration(milliseconds: 400));
-      return await _printer.isConnected == true;
+      // Give the printer time to establish the SPP channel
+      await Future.delayed(const Duration(milliseconds: 900));
+      final connected = await _printer.isConnected == true;
+      if (!connected) {
+        _lastBluetoothError =
+            'Could not connect to printer ${target.name ?? ''} (${target.address ?? ''})';
+      } else {
+        _lastBluetoothError = null;
+      }
+      return connected;
     } catch (e) {
+      if (e.toString().toLowerCase().contains('already connected')) {
+        final connected = await _printer.isConnected == true;
+        if (connected) {
+          _lastBluetoothError = null;
+        }
+        return connected;
+      }
+      _lastBluetoothError = 'Bluetooth connect error: $e';
       print('Error connecting to printer: $e');
       return false;
     }
@@ -1016,13 +1357,110 @@ class PrintService {
 
   Future<void> disconnect() async => await _printer.disconnect();
 
+  /// Ensure BT is connected to the saved/preferred printer.
+  /// Returns true if connected (or already connected). Safe to call repeatedly —
+  /// it will reuse an existing connection rather than reconnecting.
+  Future<bool> ensureBluetoothConnected() async {
+    if (!await _requestBluetoothPermissions()) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final preferredBtAddress = prefs.getString('kPreferredBtAddress');
+    return _connectToPrinter(deviceAddress: preferredBtAddress);
+  }
+
+  Future<PrintDispatchResult> testBluetoothPrinter({
+    String? deviceAddress,
+  }) async {
+    final okPermissions = await _requestBluetoothPermissions();
+    if (!okPermissions) {
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.failed,
+        mode: 'bluetooth',
+        error: _lastBluetoothError ?? 'Bluetooth permission denied',
+      );
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final selected = deviceAddress ?? prefs.getString('kPreferredBtAddress');
+    final connected = await _connectToPrinter(deviceAddress: selected);
+    if (!connected) {
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.failed,
+        mode: 'bluetooth',
+        error: _lastBluetoothError ?? 'Unable to connect to Bluetooth printer',
+      );
+    }
+
+    try {
+      await _printer.printCustom('BLUETOOTH TEST OK', 1, 1);
+      await _printer.printCustom(DateTime.now().toString(), 0, 1);
+      await _printer.printNewLine();
+      return const PrintDispatchResult(
+        status: PrintDispatchStatus.sent,
+        mode: 'bluetooth',
+      );
+    } catch (e) {
+      _lastBluetoothError = 'Connected but test print failed: $e';
+      return PrintDispatchResult(
+        status: PrintDispatchStatus.failed,
+        mode: 'bluetooth',
+        error: _lastBluetoothError,
+      );
+    }
+  }
+
+  /// Print a single ticket via Bluetooth WITHOUT reconnecting.
+  /// Caller must call [ensureBluetoothConnected] first.
+  Future<PrintDispatchResult> printSingleTicketBluetooth({
+    required String eventName,
+    required String ticketType,
+    required double price,
+    required int ticketNumber,
+    required int totalTickets,
+    required String ticketCode,
+    required String validationUrl,
+    int? ticketId,
+    String? customerName,
+    String? venue,
+  }) async {
+    final success = await _printTicketViaBluetooth(
+      eventName: eventName,
+      ticketType: ticketType,
+      price: price,
+      ticketNumber: ticketNumber,
+      totalTickets: totalTickets,
+      ticketCode: ticketCode,
+      validationUrl: validationUrl,
+      ticketId: ticketId,
+      customerName: customerName,
+      venue: venue,
+    );
+    return PrintDispatchResult(
+      status: success ? PrintDispatchStatus.sent : PrintDispatchStatus.failed,
+      mode: 'bluetooth',
+      error: success ? null : 'Bluetooth print command failed',
+    );
+  }
+
   /// Connect to a specific Bluetooth printer device
   Future<bool> connectToSpecificPrinter(BluetoothDevice device) async {
     try {
+      final alreadyConnected = await _printer.isConnected == true;
+      if (alreadyConnected) {
+        final sameDevice = await _printer.isDeviceConnected(device) == true;
+        if (sameDevice) return true;
+        try {
+          await _printer.disconnect();
+          await Future.delayed(const Duration(milliseconds: 200));
+        } catch (_) {}
+      }
+
       await _printer.connect(device);
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 300));
       return await _printer.isConnected == true;
     } catch (e) {
+      if (e.toString().toLowerCase().contains('already connected')) {
+        return await _printer.isConnected == true;
+      }
       print('Error connecting to specific printer: $e');
       return false;
     }

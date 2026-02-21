@@ -91,10 +91,11 @@ class AppSettingsService {
   }
 
   /// Get printer delay between tickets in milliseconds
-  /// Default: 1500ms (1.5 seconds)
+  /// Default: 500ms — enough for most thermal printers to finish cutting
+  /// before the next ESC/POS command stream arrives.
   Future<int> getPrinterDelayMs() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_kPrinterDelayMs) ?? 1500;
+    return prefs.getInt(_kPrinterDelayMs) ?? 500;
   }
 
   /// Set printer delay between tickets in milliseconds
@@ -139,6 +140,6 @@ class AppSettingsService {
     await setFastCheckoutMode(false);
     await setValidationPopupTimeoutSeconds(5);
     await setValidationSoundEnabled(true);
-    await setPrinterDelayMs(1500);
+    await setPrinterDelayMs(500);
   }
 }

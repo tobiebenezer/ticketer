@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:myapp/core/services/app_settings_service.dart';
 import 'package:myapp/data/services/sync_service.dart';
 import 'package:myapp/features/ticket_printing/reprint_screen.dart';
+import 'package:myapp/features/ticket_printing/print_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -25,10 +26,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<BluetoothDevice> _btDevices = [];
   bool _scanningWifi = false;
   bool _loading = true;
+  bool _showBtDebug = false;
+  int _btHeaderTapCount = 0;
+  String _btPrintMode = 'image';
+  int _btPaperWidthMm = 80;
   Map<String, dynamic>? _user;
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _printerDelayController = TextEditingController();
   final AppSettingsService _appSettings = AppSettingsService();
+  final PrintService _printService = PrintService();
 
   // Offline mode settings
   bool _preferOfflineSales = true;
@@ -51,6 +57,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _preferredPath = prefs.getString('kPreferredPrintPath') ?? 'wifi';
       _wifiIp = prefs.getString('kPreferredWifiPrinterIp');
       _btAddress = prefs.getString('kPreferredBtAddress');
+      _btPrintMode = prefs.getString('kBluetoothPrintMode') ?? 'image';
+      _btPaperWidthMm = prefs.getInt('kBluetoothPaperWidthMm') ?? 80;
       final userJson = prefs.getString('kUserProfileJson');
       if (userJson != null) {
         _user = _tryDecode(userJson);
@@ -88,6 +96,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _loadBt();
   }
 
+  Future<void> _saveBluetoothPrintMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('kBluetoothPrintMode', mode);
+  }
+
+  Future<void> _saveBluetoothPaperWidth(int widthMm) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('kBluetoothPaperWidthMm', widthMm);
+  }
+
   Map<String, dynamic>? _tryDecode(String s) {
     try {
       return jsonDecode(s) as Map<String, dynamic>;
@@ -103,6 +121,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await prefs.setString('kPreferredWifiPrinterIp', _wifiIp!);
     if (_btAddress != null)
       await prefs.setString('kPreferredBtAddress', _btAddress!);
+  }
+
+  Future<void> _testBluetoothPrinter() async {
+    if (_btAddress == null || _btAddress!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select a bonded Bluetooth printer first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final result = await _printService.testBluetoothPrinter(
+      deviceAddress: _btAddress,
+    );
+    if (!mounted) return;
+    if (result.isSent) {
+      _preferredPath = 'bluetooth';
+      await _save();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bluetooth test sent. Print path set to Bluetooth.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.error ?? 'Bluetooth test failed'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _updateOfflineSetting(String key, bool value) async {
@@ -384,7 +437,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       controller: _printerDelayController,
                       decoration: const InputDecoration(
                         labelText: 'Delay (ms)',
-                        hintText: '1500',
+                        hintText: '500',
                         border: OutlineInputBorder(),
                         suffixText: 'ms',
                       ),
@@ -392,7 +445,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         decimal: true,
                       ),
                       onChanged: (value) async {
-                        final delay = int.tryParse(value) ?? 1500;
+                        final delay = int.tryParse(value) ?? 500;
                         await _appSettings.setPrinterDelayMs(delay);
                       },
                     ),
@@ -440,6 +493,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: 'bluetooth',
                   groupValue: _preferredPath,
                   onChanged: (v) async {
+                    if (_btAddress == null || _btAddress!.isEmpty) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Select a bonded Bluetooth printer first',
+                          ),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
                     setState(() => _preferredPath = v!);
                     await _save();
                   },
@@ -527,7 +592,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
           const Divider(height: 32),
-          const Text('Bluetooth Printers'),
+          GestureDetector(
+            onLongPress: () {
+              setState(() => _showBtDebug = !_showBtDebug);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    _showBtDebug
+                        ? 'Bluetooth debug tools enabled'
+                        : 'Bluetooth debug tools hidden',
+                  ),
+                ),
+              );
+            },
+            onTap: () {
+              _btHeaderTapCount++;
+              if (_btHeaderTapCount >= 7) {
+                _btHeaderTapCount = 0;
+                setState(() => _showBtDebug = !_showBtDebug);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _showBtDebug
+                          ? 'Bluetooth debug tools enabled'
+                          : 'Bluetooth debug tools hidden',
+                    ),
+                  ),
+                );
+              }
+            },
+            child: const Text('Bluetooth Printers'),
+          ),
+          const SizedBox(height: 8),
+          if (_showBtDebug) ...[
+            const Text(
+              'Debug: Bluetooth print mode',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Image'),
+                  selected: _btPrintMode == 'image',
+                  onSelected: (_) async {
+                    setState(() => _btPrintMode = 'image');
+                    await _saveBluetoothPrintMode('image');
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Text Only (debug)'),
+                  selected: _btPrintMode == 'text_only',
+                  onSelected: (_) async {
+                    setState(() => _btPrintMode = 'text_only');
+                    await _saveBluetoothPrintMode('text_only');
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Debug: Bluetooth paper width',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('58mm'),
+                  selected: _btPaperWidthMm == 58,
+                  onSelected: (_) async {
+                    setState(() => _btPaperWidthMm = 58);
+                    await _saveBluetoothPaperWidth(58);
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('80mm (larger)'),
+                  selected: _btPaperWidthMm == 80,
+                  onSelected: (_) async {
+                    setState(() => _btPaperWidthMm = 80);
+                    await _saveBluetoothPaperWidth(80);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (_btAddress == null || _btAddress!.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'No Bluetooth printer selected. Printing will fail until one is selected.',
+                style: TextStyle(color: Colors.orange),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: (_btAddress == null || _btAddress!.isEmpty)
+                  ? null
+                  : _testBluetoothPrinter,
+              icon: const Icon(Icons.bluetooth_connected),
+              label: const Text('Test Bluetooth Printer'),
+            ),
+          ),
           const SizedBox(height: 8),
           if (_btDevices.isEmpty)
             const Text('No bonded Bluetooth printers found')
@@ -541,7 +711,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: d.address ?? '',
                   groupValue: _btAddress,
                   onChanged: (v) async {
-                    setState(() => _btAddress = v);
+                    setState(() {
+                      _btAddress = v;
+                      _preferredPath = 'bluetooth';
+                    });
                     await _save();
                   },
                 ),
